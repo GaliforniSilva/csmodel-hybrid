@@ -1,0 +1,131 @@
+
+%%% DuneFront - Katwijk demonstrator simulation %%%
+
+%%% Physical constants %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+rho         = 1025
+g           = 9.81
+depthscale  = 1
+
+
+%%% Model time parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+tstop      = 36000
+CFL        = 0.700000
+
+%%% Physical processes %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+sedtrans        = 1
+morphology      = 1
+avalanching     = 1
+wavemodel       = surfbeat
+
+%%% Grid parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+gridform   = xbeach
+xfile      = x.dep
+nx         = 1743
+ny         = 0
+depfile    = bed.dep
+posdwn     = -1
+thetamin   = -90
+thetamax   = 90
+dtheta     = 180
+thetanaut  = 0
+
+
+%%% Wave boundary condition parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+wbctype     = jonstable
+bcfile      = waves.lst
+lateralwave = neumann
+
+wbcevarreduce = 1
+
+%%% Wave spectrum boundary condition parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+random      = 1
+
+%%% Flow boundary condition parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+front        = abs_1d
+back         = abs_1d
+left         = neumann
+right        = neumann
+
+%%% Tide boundary conditions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+tideloc    = 0
+%zs0file    = tide.txt
+
+
+%%% Wave breaking parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+break      = roelvink_daly
+gamma      = 0.46
+alpha      = 1
+n          = 10
+delta      = 0
+
+%%% MPI parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+mmpi = 2
+
+%%% Initial conditions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Roller parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Wave-current interaction parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Coriolis force parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Wind parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Discharge boundary conditions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%%% Flow parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%%% Bed composition parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+rhos       = 2630
+por        = 0.400000
+% D15        = 0.00015
+D50        = 0.000211
+% D90        = 0.0003
+
+%%% Sediment transport parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+waveform   = vanthiel
+form       = vanthiel_vanrijn
+facua      = 0.1
+turb       = wave_averaged
+Tsmin      = 0.5
+
+%%% Morphology parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+morfac     = 1
+morstart   = 0
+wetslp     = 0.300000
+dryslp     = 1
+hswitch    = 0.100000
+dzmax      = 0.05
+struct     = 1
+ne_layer   = ne_bed.dep
+
+%%% Output variables %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+tintg        = 600
+tstart       = 0
+outputformat = netcdf
+
+
+nglobalvar = 6
+H
+hh
+qx
+zb
+zs
+iwl
+

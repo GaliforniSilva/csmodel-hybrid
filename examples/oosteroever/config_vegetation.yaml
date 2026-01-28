@@ -1,0 +1,101 @@
+dike_parameters:
+  yl_hs: 0
+  ys_hs: 50
+  s_hs: 4.5
+  betas_hs: 0.3
+  betal_hs: 0.33
+  ylprim_hs: 13.6363636363637
+  ysprim_hs: 35
+  base_elevation_front: 4.5
+  base_elevation_back: 4.5
+
+dune_parameters:
+  betas: 0.47
+  betal: 0.26
+  betaf: 0.05
+  bw: 320.0
+  s: 0.1
+  sramp: 0.1
+  ys: 220.0
+  ysprim: 219.7872340426
+  ylprim: 200.3846153846
+  yl: 200.0
+  dfoot: 4.5
+  shorn: 330.0
+  yg: 540.0
+
+dune_volumes:
+  vramp: 0.010638297872340274
+  vbeach: 720.0
+  volbar: 22.5
+
+sediment_transport:
+  qs: 0.0
+  ql: 0.0
+
+constants:
+  rhos: 2650.0
+  rhoa: 1.2
+  d50ref: 0.2e-3
+  awind: 0.1
+  p: 0.4
+  z: 10
+  kappa: 0.4
+  cb: 2
+  t: 0.5
+  g: 9.81
+  kw: 4.2
+  cwrate: 0.1
+  sedbud: 2
+  vegcount: 1
+  cf: 0.02
+  bactive: 1000
+  slr: 0
+  a: 0.6
+  aprim: 0.4
+  asfn: 0.2
+  cb_cs: 0.1
+  temp: 10
+  bl: 38.907
+  al: 0.44921
+
+nourishments:
+  vanr: 0
+  barnour_total: 0
+  barnour_time_length: 100
+
+vegetation:
+  rhov_df: 0.15
+  rhov_dt: 0.15
+  rhov_db: 0.15
+  rhov_df2: 0.0
+  rhov_dt2: 0.0
+  rhov_db2: 0.0
+  vegdt: 2592000
+  cumdt: 0
+  vegupdate: 0
+  frontal_cover_scale_spec1: 40
+  frontal_cover_scale_spec2: 5
+
+boundary_conditions:
+  cimpact: 6.0e-04
+  d50: 0.20e-3
+  wave_height: 'boundary/wave_height_timeseries.txt'
+  wave_period: 'boundary/wave_period_timeseries.txt'
+  wave_direction: 'boundary/wave_direction_timeseries.txt'
+  wind_speed: 'boundary/wind_speed_timeseries.txt'
+  wind_direction: 'boundary/wind_direction_timeseries.txt'
+  swl: 'boundary/swl_timeseries.txt'
+
+erosion:
+  dclos: 8
+  deltavall: 0.0
+
+time_params:
+  time_length_hours: 24100.166666666668
+  dt: 600.0
+  month: 'boundary/month_timeseries.txt'
+
+output:
+  filename: cs_model_oosteroever.pkl
+

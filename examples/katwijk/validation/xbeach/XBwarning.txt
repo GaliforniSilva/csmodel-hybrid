@@ -1,0 +1,5 @@
+   Unknown, unused or multiple statements of parameter%ZS0FILE inparams.txt
+   Unknown, unused or multiple statements of parameterMMPI inparams.txt
+   Unknown, unused or multiple statements of parameter% D15 inparams.txt
+   Unknown, unused or multiple statements of parameter% D90 inparams.txt
+  Warning: shallow water so long wave variance is reduced using par%nmax
