@@ -69,11 +69,6 @@ The main executable file that runs the CS Hybrid simulation.
 - Includes vegetation and hard structure modules  
 - Produces time-varying morphology and vegetation outputs  
 
-Run using:
-
-```bash
-python main.py path/to/config.yaml
-```
 
 2. `functions.py`
 
