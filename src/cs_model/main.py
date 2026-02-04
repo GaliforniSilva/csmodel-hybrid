@@ -243,6 +243,12 @@ def run_model(config_path):
         'rhov_df2': [],
         'rhov_dt2': [],
         'rhov_db2': [],
+        'volbar': [],
+        'qs_crest': [],
+        'qs_lee': [],
+        'qs_ramp': [],
+        'qwnet': [],
+        'qbar': [],
         'wave_period': wave_period_time_series,
         'wave_direction': wave_dir_time_series,
         'wind_speed': wind_speed_time_series,
@@ -511,7 +517,7 @@ def run_model(config_path):
         results['swl'].append(swl)
         results['runup'].append(r)
         results['total_water_level'].append(total_water_level)
-        results['eroded_volume'].append(deltavramp)
+        results['eroded_volume'].append(deltavramp_ero)
         results['overwash_volume'].append(erod_overwash)
         results['dune_height'].append(dune_z['seaward_crest'] - dune_z['ramp_toe'])
         results['dune_foot'].append(dune_x['ramp_toe'])
@@ -521,6 +527,13 @@ def run_model(config_path):
         results['rhov_db2'].append(rhov_db2)
         results['rhov_dt2'].append(rhov_dt2)
         results['rhov_df2'].append(rhov_df2)
+        results['volbar'].append(volbar)
+        results['qs_crest'].append(qs_crest)
+        results['qs_lee'].append(qs_lee)
+        results['qs_ramp'].append(qs_ramp)
+        results['qwnet'].append(qwnet)
+        results['qbar'].append(qbar)
+
 
 
         ## print progress

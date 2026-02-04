@@ -1581,6 +1581,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             dune_z['ramp_crest'] = s_new_c + dfoot
             dune_x['ramp_toe'] = ys_new_c
             dune_z['ramp_toe'] = dfoot
+            dune_x['ramp_toe_temp'] = ys_new_c #TEST
+            dune_z['ramp_toe_temp'] = dfoot #TEST
+
         
         ################## update lee ##################
         if qs_lee + vlee_lateral > 0:
