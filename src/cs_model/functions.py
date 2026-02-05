@@ -1276,11 +1276,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             deltavramp = qs_ramp # how much sand is deposited on the ramp
             
             # current, max, new
-            vramp      = ramp_volume(dune_z['ramp_crest'], dune_z['ramp_crest'], dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
-            vrampmax   = ramp_volume(dune_z['seaward_crest'], dune_z['seaward_crest'], dune_x['seaward_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
+            vramp      = ramp_volume(dune_z['ramp_crest']-dfoot, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
+            x_foot_max = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot)/betas)
+            vrampmax   = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], x_foot_max, betas, dfoot, substrate_x, substrate_z)
             vrampnew   = vramp + deltavramp
             
-            ys_temp = dune_x['seaward_crest'] + (dune_z['seaward_crest'] /betas)
+            ys_temp = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot) /betas)
                     
             # check if ramp is in front of the dike or not:
             if (dune_x['ramp_crest'] > dune_x['seaward_crest']) or (dune_x['seaward_crest'] == dune_x['ramp_crest'] and dune_x['seaward_crest'] < ys_hs):  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
@@ -1450,6 +1451,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 # update dune array with new ramp and toe position
                 if vrampnew < vrampmax:
                     dune_x['ramp_toe'] = ys_new_r
+                    dune_x['ramp_toe_temp'] = ys_new_r
                     dune_z['ramp_crest'] = sramp_new_r+dfoot
                     dune_z['ramp_dike_temp'] = sramp_new_r+dfoot
                 else:
@@ -1457,6 +1459,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['ramp_crest'] = ysprim_new_r
                     dune_x['ramp_dike_temp'] = ysprim_new_r
                     dune_x['ramp_toe'] = ys_new_r
+                    dune_x['ramp_toe_temp'] = ys_new_r
                     dune_z['ramp_crest'] = sramp_new_r+dfoot
                     dune_z['ramp_dike_temp'] = sramp_new_r+dfoot
                     dune_z['crest_temp'] = sramp_new_r+dfoot
