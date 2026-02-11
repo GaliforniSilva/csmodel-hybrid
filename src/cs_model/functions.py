@@ -1465,8 +1465,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['ramp_toe_temp'] = ys_new_r
                     dune_z['ramp_crest'] = sramp_new_r+dfoot
                     dune_z['ramp_dike_temp'] = sramp_new_r+dfoot
-                    dune_z['crest_temp'] = sramp_new_r+dfoot
-                    dune_x['crest_temp'] = ysprim_new_r
+                    #dune_z['crest_temp'] = sramp_new_r+dfoot
+                    #dune_x['crest_temp'] = ysprim_new_r
                 
                 # calculate total initial volume above the substrate
         total_volume_ramp = total_volume([dune_x[k] for k in list(dune_x.keys())[1:8]], [dune_z[k] for k in list(dune_z.keys())[1:8]], substrate_x, substrate_z)
@@ -1537,7 +1537,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 def f_crest_triangular_detach(s_potential):
         
                     ystemp = dune_x['seaward_crest'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block
-                    yltemp = dune_x['crest_temp']
+                    #yltemp = dune_x['crest_temp']
+                    yltemp = substrate_x[2] # fixed at dike position
         
                     ysprim_potential = ystemp - ((s_potential-s)/betas)
                     ylprim_potential = yltemp + ((s_potential-s)/betal)
