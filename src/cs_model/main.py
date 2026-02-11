@@ -469,6 +469,9 @@ def run_model(config_path):
             
         # Calculate bar evolution
         volbar, barnour[i] = bar(volbar, qbar, p.dt, vnourbar[i], barnour[i], qnour)
+        
+        if i==46514:
+            print(i)
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
         dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)
 
@@ -534,12 +537,9 @@ def run_model(config_path):
         results['qwnet'].append(qwnet)
         results['qbar'].append(qbar)
 
-
-
         ## print progress
         if i % 1000 == 0:
             print(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
-
 
     ############################################################################
     # SAVE RESULTS
