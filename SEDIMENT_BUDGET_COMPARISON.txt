@@ -1,0 +1,105 @@
+================================================================================
+SEDIMENT BUDGET COMPARISON: CB=2.0 vs CB=0.1
+================================================================================
+
+CONFIGURATION WITH CB=2.0 (ORIGINAL - PROBLEMATIC)
+---------------------------------------------------
+
+Initial State:
+  Beach:  4236 m³/m
+  Dune:    333 m³/m
+  Bar:      23 m³/m
+  ─────────────────
+  TOTAL:  4592 m³/m
+
+After 1 Year:
+  Beach:  3459 m³/m  (LOST 777 m³/m ⚠️)
+  Dune:    355 m³/m  (GAIN  22 m³/m)
+  Bar:     778 m³/m  (GAIN 755 m³/m ⚠️)
+  ─────────────────
+  TOTAL:  4592 m³/m  (conserved ✓)
+
+Sediment Pathways:
+  Beach → Dune (aeolian):   24 m³/m  (  3%)  ← Too little!
+  Beach → Bar (offshore):  755 m³/m  ( 97%)  ← WAY too much!
+  Dune → Beach (erosion):    2 m³/m
+                          ─────────
+  Net Beach Loss:          777 m³/m
+
+PROBLEM: Bar dominates sediment budget!
+  - 97% of beach sediment goes offshore
+  - Only 3% builds dune
+  - Bar grows from 23 → 778 m³/m (3341% increase!)
+  - Physically unrealistic for most coastal systems
+
+
+================================================================================
+
+CONFIGURATION WITH CB=0.1 (RECOMMENDED - REALISTIC)
+----------------------------------------------------
+
+Initial State:
+  Beach:  4236 m³/m
+  Dune:    333 m³/m
+  Bar:      23 m³/m
+  ─────────────────
+  TOTAL:  4592 m³/m
+
+After 1 Year:
+  Beach:  4091 m³/m  (LOST 145 m³/m ✓)
+  Dune:    459 m³/m  (GAIN 126 m³/m ✓)
+  Bar:      39 m³/m  (GAIN  16 m³/m ✓)
+  ─────────────────
+  TOTAL:  4590 m³/m  (conserved ✓)
+
+Sediment Pathways:
+  Beach → Dune (aeolian):  128 m³/m  ( 89%)  ← Good!
+  Beach → Bar (offshore):   16 m³/m  ( 11%)  ← Reasonable!
+  Dune → Beach (erosion):    0 m³/m
+                          ─────────
+  Net Beach Loss:          145 m³/m
+
+IMPROVEMENT: Aeolian dominates sediment budget!
+  - 89% of beach sediment builds dune
+  - Only 11% goes offshore to bar
+  - Bar grows moderately: 23 → 39 m³/m (73% increase)
+  - Physically realistic for dune-building systems
+
+
+================================================================================
+KEY DIFFERENCES
+================================================================================
+
+                        CB=2.0          CB=0.1          Change
+                        ──────────────  ──────────────  ──────────────
+Bar Growth              +755 m³/m ⚠️    +16 m³/m ✓      -739 m³/m
+Dune Growth             +22 m³/m        +126 m³/m ✓     +104 m³/m
+Aeolian Transport       24 m³/m         128 m³/m ✓      +104 m³/m
+Beach Loss              -777 m³/m ⚠️    -145 m³/m ✓     +632 m³/m
+
+% to Bar                97% ⚠️          11% ✓           -86%
+% to Dune               3%              89% ✓           +86%
+
+Bar Equilibrium         2129 m³/m ⚠️    106 m³/m ✓      -2023 m³/m
+
+
+================================================================================
+RECOMMENDATION
+================================================================================
+
+UPDATE CONFIG FILE:
+
+  constants:
+    cb: 0.1    # Changed from 2.0
+
+OR try intermediate values for fine-tuning:
+    cb: 0.15   # Bar equilibrium ~160 m³/m
+    cb: 0.2    # Bar equilibrium ~213 m³/m
+
+This will:
+  ✓ Reduce excessive bar growth
+  ✓ Increase dune growth via aeolian transport
+  ✓ Maintain proper mass conservation
+  ✓ Produce physically realistic results
+
+================================================================================
