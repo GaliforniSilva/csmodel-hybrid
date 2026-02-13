@@ -585,7 +585,7 @@ def run_model(config_path, check_mass_conservation=False):
                 f.write(f"Total Error %: {mass_check_result['total_error_percent']:.6f}%\n")
                 f.write(f"Error Threshold: {mass_check_result['error_threshold']:.1f}%\n")
             print(f"Mass conservation summary saved to {mass_report_filename}")
-            
+
             # Print final summary to terminal for visibility
             print()
             print("=" * 80)
