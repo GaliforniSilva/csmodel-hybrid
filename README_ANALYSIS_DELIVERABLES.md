@@ -14,7 +14,7 @@ You asked for:
 3. ✅ Report format with line numbers and specific issues
 4. ✅ **NO CODE CHANGES** - analysis only
 
-## 📁 Analysis Documents (4 files)
+## 📁 Analysis Documents (5 files)
 
 ### 1. MODEL_ANALYSIS_REPORT.md (37 KB, 1009 lines)
 **The main technical document**
@@ -30,7 +30,21 @@ Contains:
 
 **Start here for complete understanding**
 
-### 2. INCONSISTENCIES_QUICK_REFERENCE.md (6 KB, 208 lines)
+### 2. CODE_FIX_RECOMMENDATIONS.md (32 KB, 887 lines) ⭐ NEW
+**Specific code change directions**
+
+Contains:
+- Detailed fix approaches for ALL 14 issues
+- Code examples showing what to change (not actual changes)
+- Multiple options for each fix
+- Physical justification for changes
+- Testing requirements after each fix
+- Difficulty and time estimates
+- 3-phase implementation strategy
+
+**Use this when ready to implement fixes**
+
+### 3. INCONSISTENCIES_QUICK_REFERENCE.md (6 KB, 208 lines)
 **Quick lookup guide**
 
 Contains:
@@ -42,7 +56,7 @@ Contains:
 
 **Use this for quick lookup during debugging**
 
-### 3. ANALYSIS_SUMMARY.txt (19 KB, 434 lines)
+### 4. ANALYSIS_SUMMARY.txt (19 KB, 434 lines)
 **Executive overview**
 
 Contains:
@@ -55,7 +69,7 @@ Contains:
 
 **Start here for high-level overview**
 
-### 4. VISUAL_GUIDE_GEOMETRIC_ARTIFACTS.md (18 KB, 371 lines)
+### 5. VISUAL_GUIDE_GEOMETRIC_ARTIFACTS.md (18 KB, 371 lines)
 **Visual explanations**
 
 Contains:
@@ -124,7 +138,12 @@ See MODEL_ANALYSIS_REPORT.md Section 3 for complete list.
 **Get complete technical details**
 → Read MODEL_ANALYSIS_REPORT.md (1-2 hours)
 
+**Ready to fix issues** ⭐
+→ Follow CODE_FIX_RECOMMENDATIONS.md (detailed directions)
+
 ### Recommended Reading Order
+
+#### For Understanding (Analysis Phase)
 
 1. **First**: ANALYSIS_SUMMARY.txt 
    - Get the big picture
@@ -142,6 +161,14 @@ See MODEL_ANALYSIS_REPORT.md Section 3 for complete list.
    - Deep dive into each issue
    - Review all 14 problems
    - Study recommendations
+
+#### For Implementation (Fix Phase)
+
+5. **Fifth**: CODE_FIX_RECOMMENDATIONS.md
+   - Review fix options for each issue
+   - Choose implementation approach
+   - Follow code examples
+   - Check testing requirements
 
 ---
 
@@ -382,10 +409,11 @@ This analysis is based on:
 | Document | Size | Lines | Focus |
 |----------|------|-------|-------|
 | MODEL_ANALYSIS_REPORT.md | 37 KB | 1009 | Technical details |
+| CODE_FIX_RECOMMENDATIONS.md | 32 KB | 887 | Implementation guide |
 | QUICK_REFERENCE.md | 6 KB | 208 | Quick lookup |
 | ANALYSIS_SUMMARY.txt | 19 KB | 434 | Executive view |
 | VISUAL_GUIDE.md | 18 KB | 371 | Geometry |
-| **TOTAL** | **80 KB** | **2022** | **Complete analysis** |
+| **TOTAL** | **112 KB** | **2909** | **Complete package** |
 
 ---
 
