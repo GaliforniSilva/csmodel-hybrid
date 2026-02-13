@@ -578,7 +578,9 @@ def run_model(config_path, check_mass_conservation=False):
         if mass_check_result:
             mass_report_filename = output_filename.replace('.pkl', '_mass_conservation.txt')
             with open(mass_report_filename, 'w') as f:
-                f.write(f"Detailed Mass Conservation Report for {output_filename}\n")
+                f.write("Detailed Mass Conservation Report\n")
+                f.write("=" * 80 + "\n")
+                f.write(f"Output file: {output_filename}\n")
                 f.write("=" * 80 + "\n")
                 f.write("\n")
                 # Write the full detailed report
