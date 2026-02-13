@@ -461,7 +461,7 @@ def run_model(config_path, check_mass_conservation=False):
 
         ######## AEOLIAN DEPOSITION AT DUNE ########
 
-        qs_ramp, qs_crest, qs_lee = deposition_dune(dune_x, dune_z, qwnet, p.dt, tetaw, wspeed, p.rhos, p.rhoa, p.d50, p.kappa, p.z, p.vegcount, p.awind, rhov_df=rhov_df, rhov_dt=rhov_dt, rhov_db=rhov_db, 
+        qs_ramp, qs_crest, qs_lee = deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, p.dt, tetaw, wspeed, p.rhos, p.rhoa, p.d50, p.kappa, p.z, p.vegcount, p.awind, rhov_df=rhov_df, rhov_dt=rhov_dt, rhov_db=rhov_db, 
             rhov_df2=rhov_df2 if p.vegcount == 1 else 0, 
             rhov_dt2=rhov_dt2 if p.vegcount == 1 else 0, 
             rhov_db2=rhov_db2 if p.vegcount == 1 else 0)
@@ -485,7 +485,7 @@ def run_model(config_path, check_mass_conservation=False):
         db_old = vbeach_old / (dune_x['shoreline'] - dune_x['ramp_toe'])
         vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
         
-        if i==51840:
+        if i==51568:
             print(i)
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
         dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)

@@ -850,7 +850,7 @@ def wind_veg_reduction(u_in, L_block,
     u_out = u_in * np.exp(-k * L_block)
     return u_out
 
-def deposition_dune(dune_x, dune_z, qwnet, dt, tetaw, wspeed, rhos, rhoa, d50, kappa, z, vegcount, awind, rhov_df, rhov_dt, rhov_db, 
+def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, wspeed, rhos, rhoa, d50, kappa, z, vegcount, awind, rhov_df, rhov_dt, rhov_db, 
         rhov_df2, rhov_dt2, rhov_db2):
     """
     Calculate sediment deposition on dune in three blocks (ramp, crest, lee) based on wind shear velocity distribution.
@@ -860,7 +860,7 @@ def deposition_dune(dune_x, dune_z, qwnet, dt, tetaw, wspeed, rhos, rhoa, d50, k
     dx_crest = abs(dune_x['ramp_crest']-dune_x['lee_crest']) #find the x distance between the front and back of the crest
     dx_lee = abs(dune_x['lee_foot']-dune_x['lee_crest']) # find the distance between the back of the crest and the dune lee foot
     
-    if dx_ramp == 0: # condition where no ramp exists anymore because of erosion, so not need to calculate everything as everything will end up on the ramp
+    if dx_ramp == 0 or dune_x['ramp_toe'] < substrate_x[4]: # condition where no ramp exists anymore because of erosion, so not need to calculate everything as everything will end up on the ramp
         qs_ramp = qwnet * dt
         qs_crest = 0.0
         qs_lee = 0.0    
@@ -1320,18 +1320,51 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         
                 elif ys_temp < ys_hs and dune_z['seaward_crest'] > s_hs + 3: #there is dune on top but the height is not enough to fill the front
                     
-                    vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
-        
-                    if deltavramp < vrampmax_hs: # if the volume is not sufficient to fill the whole front of the dike:
-                       sramp_new_r = ((2 * deltavramp) / ((1 / betas) - (1 / betas_hs))) ** 0.5
+                    # check if the volume needed to reconnect the ramp side
+
+                    vrampmax_hs = ((((s_hs)**2)/(2*betas)))#-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
+                    x_rampfoot_max = substrate_x[3] + (s_hs)/betas
+                    
+                    v_dike = (substrate_x[4]-substrate_x[3])*(substrate_z[3]-substrate_z[4])/2
+                    v_bottom_full = (x_rampfoot_max - substrate_x[3])*(substrate_z[3]-substrate_z[4])/2
+                    v_bottom = ((dune_x['ramp_toe'] - dune_x['ramp_crest'])*(dune_z['ramp_crest'] - dune_z['ramp_toe'])/2) - ((substrate_x[4]- dune_x['ramp_crest'])*(dune_z['ramp_crest'] - dune_z['ramp_toe'])/2)
+                    
+                    if v_bottom < 0:
+                        v_bottom = 0
+                        
+                    v_to_fill = v_bottom_full - v_dike - v_bottom
+                    
+                    if deltavramp < v_to_fill: # if the volume is not sufficient to fill the whole front of the dike:
+                       sramp_new_r = ((2 * (deltavramp+v_bottom)) / ((1 / betas) - (1 / betas_hs))) ** 0.5
                        ysprim_new_r = ys_hs - (sramp_new_r/betas_hs)
                        ys_new_r = ysprim_new_r+(sramp_new_r/betas)
                        
-                       dune_x['ramp_toe'] = ys_new_r
-                       dune_z['ramp_crest'] = sramp_new_r+dfoot
-                       dune_x['ramp_crest'] = ysprim_new_r
-                       dune_x['seaward_crest'] = ysprim_new_r
-                       
+                       # check where to update:
+                       if ((dune_z['seaward_crest'] - dune_z['ramp_toe']) > s_hs and dune_x['ramp_toe'] <= substrate_x[4]) or dune_x['seaward_crest'] < dune_x['ramp_crest']: #check if no ramp or detacehd
+                           
+                           #check if there is ramp on top of the dune or not
+                           v_temp = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['seaward_crest'], substrate_x[4])
+                           
+                           if v_temp > 0: #means there is a ramp on top, not scarp
+                               dune_x['ramp_dike_temp'] = dune_x['seaward_crest'] + ((dune_z['seaward_crest'] - substrate_z[3])/betas)
+                               dune_z['ramp_dike_temp'] = s_hs + dfoot
+                           else: #assume a scarp
+                               dune_x['ramp_dike_temp'] = dune_x['seaward_crest'].copy()
+                               dune_z['ramp_dike_temp'] = s_hs + dfoot
+       
+                           dune_x['ramp_toe'] = ys_new_r
+                           dune_x['ramp_toe_temp'] = ys_new_r
+                           dune_z['ramp_crest'] = sramp_new_r+dfoot
+                           dune_x['ramp_crest'] = ysprim_new_r
+
+                       else:
+                           dune_x['ramp_toe'] = ys_new_r
+                           dune_x['ramp_toe_temp'] = ys_new_r
+                           dune_z['ramp_crest'] = sramp_new_r+dfoot
+                           dune_x['ramp_crest'] = ysprim_new_r
+                           dune_x['seaward_crest'] = ysprim_new_r
+                           dune_x['ramp_dike_temp'] = ysprim_new_r
+                           
                     else:
                         vol_to_fill_top = ((ysprim_hs - dune_x['seaward_crest'])**2)*betas*0.5 #volume to fill the top of the dike and stop the intersection
                         vol_to_fill_face = ((((s_hs)**2)/(2*betas)))-((ys_hs-ysprim_hs)*(s_hs)*0.5) #volume to fill the face of the dike
