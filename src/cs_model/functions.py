@@ -84,7 +84,11 @@ def trapezoid_positive(y, x):
     Negative values are clipped to zero.
     """
     y_clip = np.maximum(y, 0)
-    return np.trapz(y_clip, x)
+    # Use trapezoid (numpy 2.x) or trapz (numpy 1.x) for compatibility
+    try:
+        return np.trapezoid(y_clip, x)
+    except AttributeError:
+        return np.trapz(y_clip, x)
 
 def load_config(path="config.yaml"):
     with open(path, "r") as f:

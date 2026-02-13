@@ -265,7 +265,9 @@ def run_model(config_path):
     sramp_veg = p.sramp # allocate value for the vegetation growth calc
 
     # Initialize varying parameters
-    vbeach = p.vbeach
+    # Calculate initial vbeach from shoreline position (yg) instead of using config value
+    # to ensure consistency with the beach volume formula
+    vbeach = ((p.yg - p.ys) - p.bl) / p.al
     vramp = p.vramp
     rhov_df = p.rhov_df
     rhov_dt = p.rhov_dt
@@ -470,6 +472,11 @@ def run_model(config_path):
         # Calculate bar evolution
         volbar, barnour[i] = bar(volbar, qbar, p.dt, vnourbar[i], barnour[i], qnour)
         
+        # Calculate beach volume BEFORE morpho_update (using old ramp_toe)
+        vbeach_old = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
+        db_old = vbeach_old / (dune_x['shoreline'] - dune_x['ramp_toe'])
+        vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
+        
         if i==51840:
             print(i)
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
@@ -498,17 +505,16 @@ def run_model(config_path):
         eroded_volume_time_series[i] = deltavramp #erod_ramp
         overwash_volume_time_series[i] = erod_overwash
         
-        vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
-        vbeach_volume_time_series[i] = vbeach
-
-        db = vbeach / (dune_x['shoreline'] - dune_x['ramp_toe'])
-        vbeachtot = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db)
-
-        vbeachtotnew = vbeachtot + (-qwnet - qslr + qnour) * p.dt + vnourb[i] + deltavramp_ero
+        # Calculate new beach volume including eroded sediment from dune
+        vbeachtotnew = vbeachtot_old + (-qwnet - qslr + qnour - qbar) * p.dt + vnourb[i] + deltavramp_ero
         vbeachtotmin = dune_x['ramp_toe'] * (p.dclos + p.dfoot) + 0.5 * p.dfoot**2 / p.betaf + p.dfoot / p.betaf * p.dclos
 
-            # Calculate new shoreline coordinate
+        # Calculate new shoreline coordinate
         dune_x['shoreline'] = dune_x['ramp_toe'] + (p.al * (vbeachtotnew - dune_x['ramp_toe'] * (p.dfoot + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
+        
+        # Calculate final beach volume for output
+        vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
+        vbeach_volume_time_series[i] = vbeach
         
         ####### STORE OUTPUTS #######
         results['dune_x'].append(dune_x.copy())
