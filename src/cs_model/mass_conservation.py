@@ -107,13 +107,22 @@ def check_mass_conservation(results, config, verbose=True):
         - 'total_error': absolute total mass balance error
         - 'initial_total': initial total volume
         - 'final_total': final total volume
+        - 'report_text': full formatted report as a string
     """
     
-    if verbose:
-        print("=" * 80)
-        print("CS MODEL MASS CONSERVATION REPORT")
-        print("=" * 80)
-        print()
+    # Build report text
+    report_lines = []
+    
+    def report_print(text=""):
+        """Helper function to both print and append to report"""
+        report_lines.append(text)
+        if verbose:
+            print(text)
+    
+    report_print("=" * 80)
+    report_print("CS MODEL MASS CONSERVATION REPORT")
+    report_print("=" * 80)
+    report_print()
     
     # Get parameters from config
     dclos = config['erosion']['dclos']
@@ -125,12 +134,11 @@ def check_mass_conservation(results, config, verbose=True):
     dt = results['time'][1] - results['time'][0] if n_steps > 1 else 0
     total_time_hours = results['time'][-1] / 3600 if n_steps > 0 else 0
     
-    if verbose:
-        print(f"Simulation details:")
-        print(f"  Number of time steps: {n_steps}")
-        print(f"  Time step: {dt:.0f} seconds")
-        print(f"  Total simulation time: {total_time_hours:.1f} hours ({total_time_hours/24:.1f} days)")
-        print()
+    report_print(f"Simulation details:")
+    report_print(f"  Number of time steps: {n_steps}")
+    report_print(f"  Time step: {dt:.0f} seconds")
+    report_print(f"  Total simulation time: {total_time_hours:.1f} hours ({total_time_hours/24:.1f} days)")
+    report_print()
     
     # Calculate volumes at start and end
     initial_dune_vol = calc_dune_vol(results['dune_x'][0], results['dune_z'][0], substrate_x, substrate_z)
@@ -143,20 +151,19 @@ def check_mass_conservation(results, config, verbose=True):
     final_bar_vol = results['volbar'][-1]
     final_total = final_dune_vol + final_beach_vol + final_bar_vol
     
-    if verbose:
-        print("INITIAL STATE:")
-        print(f"  Dune volume:  {initial_dune_vol:>12.4f} m³/m")
-        print(f"  Beach volume: {initial_beach_vol:>12.4f} m³/m")
-        print(f"  Bar volume:   {initial_bar_vol:>12.4f} m³/m")
-        print(f"  Total volume: {initial_total:>12.4f} m³/m")
-        print()
-        
-        print("FINAL STATE:")
-        print(f"  Dune volume:  {final_dune_vol:>12.4f} m³/m")
-        print(f"  Beach volume: {final_beach_vol:>12.4f} m³/m")
-        print(f"  Bar volume:   {final_bar_vol:>12.4f} m³/m")
-        print(f"  Total volume: {final_total:>12.4f} m³/m")
-        print()
+    report_print("INITIAL STATE:")
+    report_print(f"  Dune volume:  {initial_dune_vol:>12.4f} m³/m")
+    report_print(f"  Beach volume: {initial_beach_vol:>12.4f} m³/m")
+    report_print(f"  Bar volume:   {initial_bar_vol:>12.4f} m³/m")
+    report_print(f"  Total volume: {initial_total:>12.4f} m³/m")
+    report_print()
+
+    report_print("FINAL STATE:")
+    report_print(f"  Dune volume:  {final_dune_vol:>12.4f} m³/m")
+    report_print(f"  Beach volume: {final_beach_vol:>12.4f} m³/m")
+    report_print(f"  Bar volume:   {final_bar_vol:>12.4f} m³/m")
+    report_print(f"  Total volume: {final_total:>12.4f} m³/m")
+    report_print()
     
     # Calculate changes
     delta_dune = final_dune_vol - initial_dune_vol
@@ -164,13 +171,12 @@ def check_mass_conservation(results, config, verbose=True):
     delta_bar = final_bar_vol - initial_bar_vol
     delta_total = final_total - initial_total
     
-    if verbose:
-        print("VOLUME CHANGES:")
-        print(f"  Δ Dune:  {delta_dune:>+12.4f} m³/m ({100*delta_dune/initial_dune_vol:>+7.2f}%)")
-        print(f"  Δ Beach: {delta_beach:>+12.4f} m³/m ({100*delta_beach/initial_beach_vol:>+7.2f}%)")
-        print(f"  Δ Bar:   {delta_bar:>+12.4f} m³/m ({100*delta_bar/initial_bar_vol:>+7.2f}%)")
-        print(f"  Δ Total: {delta_total:>+12.4f} m³/m ({100*delta_total/initial_total:>+7.2f}%)")
-        print()
+    report_print("VOLUME CHANGES:")
+    report_print(f"  Δ Dune:  {delta_dune:>+12.4f} m³/m ({100*delta_dune/initial_dune_vol:>+7.2f}%)")
+    report_print(f"  Δ Beach: {delta_beach:>+12.4f} m³/m ({100*delta_beach/initial_beach_vol:>+7.2f}%)")
+    report_print(f"  Δ Bar:   {delta_bar:>+12.4f} m³/m ({100*delta_bar/initial_bar_vol:>+7.2f}%)")
+    report_print(f"  Δ Total: {delta_total:>+12.4f} m³/m ({100*delta_total/initial_total:>+7.2f}%)")
+    report_print()
     
     # Calculate integrated fluxes
     total_qs_ramp = np.sum(results['qs_ramp'][:n_steps])
@@ -182,15 +188,14 @@ def check_mass_conservation(results, config, verbose=True):
     total_qbar_vol = np.sum([results['qbar'][i] * dt for i in range(n_steps)])
     total_eroded = np.sum(results['eroded_volume'][:n_steps])
     
-    if verbose:
-        print("INTEGRATED FLUXES (over entire simulation):")
-        print(f"  Aeolian transport from beach to dune: {total_aeolian:>12.4f} m³/m")
-        print(f"    - Deposited on ramp:  {total_qs_ramp:>12.4f} m³/m")
-        print(f"    - Deposited on crest: {total_qs_crest:>12.4f} m³/m")
-        print(f"    - Deposited on lee:   {total_qs_lee:>12.4f} m³/m")
-        print(f"  Bar-beach exchange (to bar if +):     {total_qbar_vol:>12.4f} m³/m")
-        print(f"  Wave erosion (from dune):             {-total_eroded:>12.4f} m³/m")
-        print()
+    report_print("INTEGRATED FLUXES (over entire simulation):")
+    report_print(f"  Aeolian transport from beach to dune: {total_aeolian:>12.4f} m³/m")
+    report_print(f"    - Deposited on ramp:  {total_qs_ramp:>12.4f} m³/m")
+    report_print(f"    - Deposited on crest: {total_qs_crest:>12.4f} m³/m")
+    report_print(f"    - Deposited on lee:   {total_qs_lee:>12.4f} m³/m")
+    report_print(f"  Bar-beach exchange (to bar if +):     {total_qbar_vol:>12.4f} m³/m")
+    report_print(f"  Wave erosion (from dune):             {-total_eroded:>12.4f} m³/m")
+    report_print()
     
     # Mass balance assessment
     expected_dune_change = total_aeolian - total_eroded
@@ -198,44 +203,44 @@ def check_mass_conservation(results, config, verbose=True):
     expected_bar_change = total_qbar_vol
     expected_total_change = 0.0  # No external sources/sinks
     
-    if verbose:
-        print("MASS BALANCE ASSESSMENT:")
-        print()
-        print("Expected changes (based on fluxes):")
-        print(f"  Expected Δ Dune:  {expected_dune_change:>+12.4f} m³/m")
-        print(f"  Expected Δ Beach: {expected_beach_change:>+12.4f} m³/m")
-        print(f"  Expected Δ Bar:   {expected_bar_change:>+12.4f} m³/m")
-        print(f"  Expected Δ Total: {expected_total_change:>+12.4f} m³/m")
-        print()
+    report_print("MASS BALANCE ASSESSMENT:")
+    report_print()
+    report_print("Expected changes (based on fluxes):")
+    report_print(f"  Expected Δ Dune:  {expected_dune_change:>+12.4f} m³/m")
+    report_print(f"  Expected Δ Beach: {expected_beach_change:>+12.4f} m³/m")
+    report_print(f"  Expected Δ Bar:   {expected_bar_change:>+12.4f} m³/m")
+    report_print(f"  Expected Δ Total: {expected_total_change:>+12.4f} m³/m")
+    report_print()
     
     dune_error = delta_dune - expected_dune_change
     beach_error = delta_beach - expected_beach_change
     bar_error = delta_bar - expected_bar_change
     total_error = delta_total - expected_total_change
     
-    if verbose:
-        print("Mass balance errors:")
-        print(f"  Dune error:  {dune_error:>+12.6f} m³/m ({100*abs(dune_error)/initial_dune_vol:.4f}%)")
-        print(f"  Beach error: {beach_error:>+12.6f} m³/m ({100*abs(beach_error)/initial_beach_vol:.4f}%)")
-        print(f"  Bar error:   {bar_error:>+12.6f} m³/m ({100*abs(bar_error)/initial_bar_vol:.4f}%)")
-        print(f"  TOTAL ERROR: {total_error:>+12.6f} m³/m ({100*abs(total_error)/initial_total:.6f}%)")
-        print()
+    report_print("Mass balance errors:")
+    report_print(f"  Dune error:  {dune_error:>+12.6f} m³/m ({100*abs(dune_error)/initial_dune_vol:.4f}%)")
+    report_print(f"  Beach error: {beach_error:>+12.6f} m³/m ({100*abs(beach_error)/initial_beach_vol:.4f}%)")
+    report_print(f"  Bar error:   {bar_error:>+12.6f} m³/m ({100*abs(bar_error)/initial_bar_vol:.4f}%)")
+    report_print(f"  TOTAL ERROR: {total_error:>+12.6f} m³/m ({100*abs(total_error)/initial_total:.6f}%)")
+    report_print()
     
     # Assessment
     error_threshold = 0.1  # 0.1% threshold
     total_error_percent = abs(100*total_error/initial_total)
     conserved = total_error_percent < error_threshold
     
-    if verbose:
-        if conserved:
-            print("✓ RESULT: Mass is conserved within acceptable limits!")
-            print(f"  (Error < {error_threshold}% threshold)")
-        else:
-            print("⚠ WARNING: Mass balance error exceeds acceptable threshold!")
-            print(f"  (Error > {error_threshold}% threshold)")
-        
-        print()
-        print("=" * 80)
+    if conserved:
+        report_print("✓ RESULT: Mass is conserved within acceptable limits!")
+        report_print(f"  (Error < {error_threshold}% threshold)")
+    else:
+        report_print("⚠ WARNING: Mass balance error exceeds acceptable threshold!")
+        report_print(f"  (Error > {error_threshold}% threshold)")
+    
+    report_print()
+    report_print("=" * 80)
+    
+    # Join all report lines into a single string
+    report_text = "\n".join(report_lines)
     
     return {
         'conserved': conserved,
@@ -246,5 +251,6 @@ def check_mass_conservation(results, config, verbose=True):
         'dune_error': dune_error,
         'beach_error': beach_error,
         'bar_error': bar_error,
-        'error_threshold': error_threshold
+        'error_threshold': error_threshold,
+        'report_text': report_text
     }
