@@ -1,0 +1,6 @@
+Mass Conservation Report for test_short.pkl
+================================================================================
+Conserved: True
+Total Error: -0.101236 m³/m
+Total Error %: 0.002205%
+Error Threshold: 0.1%

@@ -98,9 +98,17 @@ def load_config(config_path):
     return cfg
 
 
-def run_model(config_path):
+def run_model(config_path, check_mass_conservation=False):
     """
     Run the CS model using a YAML configuration file.
+
+    Parameters
+    ----------
+    config_path : str
+        Path to the YAML configuration file
+    check_mass_conservation : bool, optional
+        If True, perform mass conservation check after simulation and print report.
+        Default is False.
 
     Returns
     -------
@@ -556,6 +564,29 @@ def run_model(config_path):
         pickle.dump(results, f)
 
     print(f"Simulation completed. Results saved to {output_filename}.")
+    
+    ############################################################################
+    # MASS CONSERVATION CHECK (if requested)
+    ############################################################################
+    
+    if check_mass_conservation:
+        print()  # Empty line for better formatting
+        from cs_model.mass_conservation import check_mass_conservation as check_mass
+        mass_check_result = check_mass(results, config, verbose=True)
+        
+        # Optionally save the mass conservation report
+        if mass_check_result:
+            mass_report_filename = output_filename.replace('.pkl', '_mass_conservation.txt')
+            with open(mass_report_filename, 'w') as f:
+                f.write(f"Mass Conservation Report for {output_filename}\n")
+                f.write("=" * 80 + "\n")
+                f.write(f"Conserved: {mass_check_result['conserved']}\n")
+                f.write(f"Total Error: {mass_check_result['total_error']:.6f} m³/m\n")
+                f.write(f"Total Error %: {mass_check_result['total_error_percent']:.6f}%\n")
+                f.write(f"Error Threshold: {mass_check_result['error_threshold']:.1f}%\n")
+            print(f"Mass conservation summary saved to {mass_report_filename}")
+    
+    return results
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
