@@ -83,12 +83,16 @@ Error Threshold: 0.1%
 ## Key Features
 
 1. **Detailed Report**: Comprehensive analysis with all volume changes, fluxes, and errors
-2. **File Save Notification**: Confirms the summary file was saved
+2. **File Save Notification**: Confirms the full detailed report was saved to a .txt file
 3. **Final Summary**: Quick reference with pass/fail status and key metrics
 
 ## Benefits
 
 - **Visibility**: Users can immediately see if mass is conserved
-- **Convenience**: Both detailed and summary information are available
-- **Persistence**: Summary file is saved for record-keeping
+- **Convenience**: Both detailed and summary information are available in terminal and file
+- **Persistence**: Full detailed report is saved to .txt file for record-keeping
 - **Clarity**: Clear pass/fail status with visual indicators (✓/⚠)
+
+## File Contents
+
+The .txt file (e.g., `test_short_mass_conservation.txt`) contains the same detailed report shown in the terminal, making it easy to review results later without re-running the simulation.

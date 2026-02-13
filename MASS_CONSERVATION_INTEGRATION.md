@@ -195,18 +195,19 @@ Error Threshold: 0.1%
 ================================================================================
 ```
 
-### Summary File
+### Report File
 
-A summary file is automatically created (e.g., `output_mass_conservation.txt`):
+A detailed report file is automatically created (e.g., `output_mass_conservation.txt`) containing the full mass conservation analysis. The file contains the same detailed report shown in the terminal, including:
 
-```
-Mass Conservation Report for output.pkl
-================================================================================
-Conserved: True
-Total Error: -0.101236 m³/m
-Total Error %: 0.002205%
-Error Threshold: 0.1%
-```
+- Simulation details (time steps, duration)
+- Initial and final volumes for all compartments (dune, beach, bar)
+- Volume changes and percentages
+- Integrated sediment fluxes (aeolian transport, bar-beach exchange, wave erosion)
+- Mass balance assessment with expected changes
+- Detailed error analysis for each compartment
+- Final result (pass/fail) with threshold comparison
+
+This makes it easy to review the complete mass conservation analysis later without re-running the simulation.
 
 ## Mass Conservation Thresholds
 
