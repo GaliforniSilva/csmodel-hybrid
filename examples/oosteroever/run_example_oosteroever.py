@@ -28,7 +28,7 @@ from cs_model.main import run_model
 
 ####################### RUN MODEL #########################
 
-results = run_model("config_vegetation.yaml")
+results = run_model("config_vegetation.yaml", check_mass_conservation=True)
 
 ################### LOAD MODEL OUTPUT ####################
 

@@ -22,3 +22,5 @@ test_*.pkl
 # OS
 .DS_Store
 Thumbs.db
+*.pkl
+*_mass_conservation.txt

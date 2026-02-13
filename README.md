@@ -79,6 +79,15 @@ This file contains helper functions used throughout the model workflow, includin
 - Interpolation utilities
 - Vegetation and structure-related routines
 
+3. `mass_conservation.py`
+
+This module provides mass conservation analysis for model simulations. It checks that sediment mass is conserved throughout the simulation by:
+
+- Tracking volume changes in dune, beach, and bar compartments
+- Comparing actual volume changes to expected changes based on sediment fluxes
+- Generating detailed reports on mass balance errors
+- Alerting users if mass balance errors exceed acceptable thresholds (0.1%)
+
 ## Prerequisites
 - Python 3.11 or higher
 - Required packages: numpy, scipy, matplotlib, shapely, pandas, netCDF4, pyyaml
@@ -114,6 +123,39 @@ python run_example_oosteroever.py
 After completion:
 * The output pickle file will be saved in the directory specified in the YAML (e.g., `cs_model_oosteroever.pkl`).
 * Each example automatically generates a plot for visualization.
+* A mass conservation report is automatically generated and displayed in the terminal.
+* A mass conservation summary file is saved alongside the output (e.g., `cs_model_oosteroever_mass_conservation.txt`).
+
+## Mass Conservation Reporting
+
+The model includes automatic mass conservation checking that can be enabled when running simulations. This feature:
+
+- **Validates** that sediment mass is conserved throughout the simulation
+- **Tracks** volume changes in all compartments (dune, beach, bar)
+- **Compares** actual changes to expected changes based on sediment fluxes
+- **Reports** detailed mass balance information including:
+  - Initial and final volumes for each compartment
+  - Volume changes over the simulation
+  - Integrated sediment fluxes (aeolian transport, wave erosion, bar-beach exchange)
+  - Mass balance errors with threshold-based assessment
+- **Saves** a summary report to a text file for record-keeping
+
+### Usage
+
+To enable mass conservation reporting in your own scripts:
+
+```python
+from cs_model.main import run_model
+
+# Run model with mass conservation check
+results = run_model('config.yaml', check_mass_conservation=True)
+```
+
+The mass conservation report will be printed to the console and a summary file will be saved alongside the output pickle file.
+
+### Mass Conservation Thresholds
+
+The model uses a **0.1% threshold** for total mass balance error. If the error exceeds this threshold, a warning is displayed. This helps identify potential issues in the simulation setup or numerical implementation.
 
 
 
