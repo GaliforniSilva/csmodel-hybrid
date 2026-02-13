@@ -51,8 +51,9 @@ def run_model(config_path, check_mass_conservation=False):
 When `check_mass_conservation=True`:
 1. Simulation runs normally
 2. After saving results, the mass conservation check is performed
-3. A detailed report is printed to the console
-4. A summary file is saved (e.g., `output_mass_conservation.txt`)
+3. A detailed report is printed to the console (verbose output)
+4. A detailed report file is saved (e.g., `output_mass_conservation.txt`)
+5. A final summary is printed to the terminal for quick reference
 
 ### 3. Updated Example Scripts
 
@@ -116,7 +117,13 @@ else:
 
 ### Console Output
 
-When mass conservation check is enabled, a detailed report is printed:
+When mass conservation check is enabled, the following is printed to the terminal:
+
+1. **Detailed Report**: A comprehensive analysis of mass conservation including simulation details, initial/final states, volume changes, integrated fluxes, and mass balance errors.
+
+2. **Final Summary**: A concise summary printed at the end for quick reference, showing the pass/fail status and key metrics.
+
+#### Detailed Report
 
 ```
 ================================================================================
@@ -172,20 +179,35 @@ Mass balance errors:
   (Error < 0.1% threshold)
 
 ================================================================================
-```
 
-### Summary File
+Mass conservation report saved to test_short_mass_conservation.txt
 
-A summary file is automatically created (e.g., `output_mass_conservation.txt`):
-
-```
-Mass Conservation Report for output.pkl
 ================================================================================
-Conserved: True
-Total Error: -0.101236 m³/m
-Total Error %: 0.002205%
+MASS CONSERVATION SUMMARY
+================================================================================
+Status: ✓ PASSED
+Total Volume Error: -0.101236 m³/m (0.002205%)
+Initial Total Volume: 4591.9288 m³/m
+Final Total Volume: 4591.8276 m³/m
 Error Threshold: 0.1%
+
+✓ Mass is conserved within acceptable limits!
+================================================================================
 ```
+
+### Report File
+
+A detailed report file is automatically created (e.g., `output_mass_conservation.txt`) containing the full mass conservation analysis. The file contains the same detailed report shown in the terminal, including:
+
+- Simulation details (time steps, duration)
+- Initial and final volumes for all compartments (dune, beach, bar)
+- Volume changes and percentages
+- Integrated sediment fluxes (aeolian transport, bar-beach exchange, wave erosion)
+- Mass balance assessment with expected changes
+- Detailed error analysis for each compartment
+- Final result (pass/fail) with threshold comparison
+
+This makes it easy to review the complete mass conservation analysis later without re-running the simulation.
 
 ## Mass Conservation Thresholds
 
