@@ -585,6 +585,23 @@ def run_model(config_path, check_mass_conservation=False):
                 f.write(f"Total Error %: {mass_check_result['total_error_percent']:.6f}%\n")
                 f.write(f"Error Threshold: {mass_check_result['error_threshold']:.1f}%\n")
             print(f"Mass conservation summary saved to {mass_report_filename}")
+            
+            # Print final summary to terminal for visibility
+            print()
+            print("=" * 80)
+            print("MASS CONSERVATION SUMMARY")
+            print("=" * 80)
+            print(f"Status: {'✓ PASSED' if mass_check_result['conserved'] else '⚠ FAILED'}")
+            print(f"Total Volume Error: {mass_check_result['total_error']:+.6f} m³/m ({mass_check_result['total_error_percent']:.6f}%)")
+            print(f"Initial Total Volume: {mass_check_result['initial_total']:.4f} m³/m")
+            print(f"Final Total Volume: {mass_check_result['final_total']:.4f} m³/m")
+            print(f"Error Threshold: {mass_check_result['error_threshold']:.1f}%")
+            if mass_check_result['conserved']:
+                print("\n✓ Mass is conserved within acceptable limits!")
+            else:
+                print("\n⚠ WARNING: Mass balance error exceeds acceptable threshold!")
+            print("=" * 80)
+            print()
     
     return results
 
