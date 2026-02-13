@@ -602,7 +602,7 @@ def run_model(config_path, check_mass_conservation=False):
                 print("\n⚠ WARNING: Mass balance error exceeds acceptable threshold!")
             print("=" * 80)
             print()
-    
+
     return results
 
 if __name__ == "__main__":
