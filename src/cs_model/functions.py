@@ -1265,9 +1265,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
         deltavramp_ero = 0.0
         deltavramp = 0.0
-
-        if dune_z['lee_crest']>8.4999:
-            print('debug')
             
         # Initialize the idx for volume calculations
         ramp_idx = ['ramp_crest', 'ramp_toe']
@@ -1819,7 +1816,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         dune_z['ramp_crest'] = s_new_lee + dfoot
                         
                     else:
-                        #print('debug')
                         v_overflow = -f_crest_nolee(ysprim_hs) #volume to be redistributed on top of the dune and dike
                         
                         #use the code for when volume is bigger than the dike
