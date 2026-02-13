@@ -64,7 +64,7 @@ Mass balance errors:
   (Error < 0.1% threshold)
 
 ================================================================================
-Mass conservation summary saved to test_short_mass_conservation.txt
+Mass conservation report saved to test_short_mass_conservation.txt
 
 ================================================================================
 MASS CONSERVATION SUMMARY
