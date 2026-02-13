@@ -51,8 +51,9 @@ def run_model(config_path, check_mass_conservation=False):
 When `check_mass_conservation=True`:
 1. Simulation runs normally
 2. After saving results, the mass conservation check is performed
-3. A detailed report is printed to the console
+3. A detailed report is printed to the console (verbose output)
 4. A summary file is saved (e.g., `output_mass_conservation.txt`)
+5. A final summary is printed to the terminal for quick reference
 
 ### 3. Updated Example Scripts
 
@@ -116,7 +117,13 @@ else:
 
 ### Console Output
 
-When mass conservation check is enabled, a detailed report is printed:
+When mass conservation check is enabled, the following is printed to the terminal:
+
+1. **Detailed Report**: A comprehensive analysis of mass conservation including simulation details, initial/final states, volume changes, integrated fluxes, and mass balance errors.
+
+2. **Final Summary**: A concise summary printed at the end for quick reference, showing the pass/fail status and key metrics.
+
+#### Detailed Report
 
 ```
 ================================================================================
@@ -171,6 +178,20 @@ Mass balance errors:
 ✓ RESULT: Mass is conserved within acceptable limits!
   (Error < 0.1% threshold)
 
+================================================================================
+
+Mass conservation summary saved to test_short_mass_conservation.txt
+
+================================================================================
+MASS CONSERVATION SUMMARY
+================================================================================
+Status: ✓ PASSED
+Total Volume Error: -0.101236 m³/m (0.002205%)
+Initial Total Volume: 4591.9288 m³/m
+Final Total Volume: 4591.8276 m³/m
+Error Threshold: 0.1%
+
+✓ Mass is conserved within acceptable limits!
 ================================================================================
 ```
 
