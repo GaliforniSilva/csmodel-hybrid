@@ -52,7 +52,7 @@ When `check_mass_conservation=True`:
 1. Simulation runs normally
 2. After saving results, the mass conservation check is performed
 3. A detailed report is printed to the console (verbose output)
-4. A summary file is saved (e.g., `output_mass_conservation.txt`)
+4. A detailed report file is saved (e.g., `output_mass_conservation.txt`)
 5. A final summary is printed to the terminal for quick reference
 
 ### 3. Updated Example Scripts
@@ -180,7 +180,7 @@ Mass balance errors:
 
 ================================================================================
 
-Mass conservation summary saved to test_short_mass_conservation.txt
+Mass conservation report saved to test_short_mass_conservation.txt
 
 ================================================================================
 MASS CONSERVATION SUMMARY
