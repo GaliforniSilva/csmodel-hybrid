@@ -88,7 +88,7 @@ def trapezoid_positive(y, x):
     try:
         return np.trapezoid(y_clip, x)
     except AttributeError:
-        return np.trapz(y_clip, x)
+        return np.trapezoid(y_clip, x)
 
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
@@ -1408,7 +1408,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential, sramp_potential, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                V = np.trapezoid(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
@@ -1463,7 +1463,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential - s_hs, sramp_potential - s_hs, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                V = np.trapezoid(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
