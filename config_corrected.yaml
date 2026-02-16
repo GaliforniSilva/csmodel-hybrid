@@ -103,4 +103,4 @@ time_params:
   month: 7
 
 output:
-  filename: cs_model_test9b_corrected.pkl
+  filename: cs_model_corrected_example.pkl
