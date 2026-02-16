@@ -1390,12 +1390,15 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential, sramp_potential, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                try:
+                                    V = np.trapezoid(dune_z_crest, dune_x_crest)
+                                except AttributeError:
+                                    V = np.trapz(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
                             # solve for sramp_potential that gives the target volume
-                            sramp_new_r = brentq(f_ramp_dike_top, 0, dune_z['seaward_crest']-substrate_z[3]) + substrate_z[3] # find the new ramp height using the root finder padding only the top of the dike
+                            sramp_new_r = brentq(f_ramp_dike_top, 0, dune_z['seaward_crest']-dune_z['ramp_crest']) + dune_z['ramp_crest'] # find the new ramp height using the root finder, solving relative to current ramp_crest
                             dune_x['ramp_dike_temp'] = ysprim + (((dune_z['seaward_crest'])-sramp_new_r)/betas) #pad the previous so that it only updates when fully filled
                             dune_x['ramp_crest'] = dune_x['ramp_crest'] - ((sramp_new_r-dune_z['ramp_crest'])/betas) #foot based on the dike because it only moves once everything is filled
                             dune_z['ramp_crest'] = sramp_new_r
@@ -1405,6 +1408,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
                             
                         else: #enough to fill everything and stop connection with dike
+                            sramp_new_r = dune_z['seaward_crest'] - dfoot  # Fill to seaward crest level
                             ysnew = sramp_new_r / betas + dune_x['seaward_crest']
                             dune_x['ramp_crest'] = dune_x['seaward_crest']
                             dune_z['ramp_crest'] = sramp_new_r + dfoot
@@ -1445,7 +1449,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential - s_hs, sramp_potential - s_hs, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                try:
+                                    V = np.trapezoid(dune_z_crest, dune_x_crest)
+                                except AttributeError:
+                                    V = np.trapz(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
@@ -1455,6 +1462,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                             dune_z['ramp_crest'] = sramp_new_r
                             
                         else: #enough to fill everything and stop connection with dike
+                            sramp_new_r = dune_z['seaward_crest'] - dfoot  # Fill to seaward crest level
                             ysnew = sramp_new_r / betas + dune_x['seaward_crest']
                             dune_x['ramp_crest'] = dune_x['seaward_crest']
                             dune_z['ramp_crest'] = sramp_new_r + dfoot
