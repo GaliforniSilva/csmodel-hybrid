@@ -1016,6 +1016,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
     sramp = dune_z['ramp_crest']-dfoot  # dune ramp height above
     ylprim = dune_x['lee_crest']  # dune landward crest position
     ysprim = dune_x['seaward_crest']  # dune seaward crest position
+    
+    if dune_z['ramp_crest']>=8.5:
+        print('debug')
 
     # case 1: dune erosion
     # case 1: dune erosion
@@ -1322,7 +1325,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     
                     # check if the volume needed to reconnect the ramp side
 
-                    vrampmax_hs = ((((s_hs)**2)/(2*betas)))#-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
+                    vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
                     x_rampfoot_max = substrate_x[3] + (s_hs)/betas
                     
                     v_dike = (substrate_x[4]-substrate_x[3])*(substrate_z[3]-substrate_z[4])/2
@@ -1332,7 +1335,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     if v_bottom < 0:
                         v_bottom = 0
                         
-                    v_to_fill = v_bottom_full - v_dike - v_bottom
+                    v_to_fill = v_bottom_full - v_dike - v_bottom #this is the volume to fill the front of the dike
                     
                     if deltavramp < v_to_fill: # if the volume is not sufficient to fill the whole front of the dike:
                        sramp_new_r = ((2 * (deltavramp+v_bottom)) / ((1 / betas) - (1 / betas_hs))) ** 0.5
@@ -1367,13 +1370,20 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                            
                     else:
                         vol_to_fill_top = ((ysprim_hs - dune_x['seaward_crest'])**2)*betas*0.5 #volume to fill the top of the dike and stop the intersection
+                        vol_to_fill_top = (ysprim_hs - (2*(dune_z['seaward_crest']-dune_z['ramp_crest'])/betas))*((dune_z['seaward_crest']-dune_z['ramp_crest'])/2)
                         vol_to_fill_face = ((((s_hs)**2)/(2*betas)))-((ys_hs-ysprim_hs)*(s_hs)*0.5) #volume to fill the face of the dike
                         vol_extra = vrampnew - vol_to_fill_face #extra volume that needs to be accomodated above the dike
-        
+                        
+                            
                         if vol_extra < vol_to_fill_top: #thus not enough to fill everything and stop connection with dike
         
+                            #check if the front is already filled, so just move all to the top (case 9b)
+                            if v_to_fill < 0:
+                                vol_extra = deltavramp
+                                
                             def f_ramp_dike_top(sramp_potential):
-                                toebound = ysprim_hs
+                                #toebound = ysprim_hs
+                                toebound = dune_x['ramp_crest'] # need to be the crest because once it starts growing, the volume limits
                                 crestbound = dune_x['seaward_crest']
                                 sramp_prim_x = toebound - (sramp_potential/betas)
                                 dune_x_crest = np.array([crestbound, sramp_prim_x, toebound])
@@ -1385,13 +1395,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 return V - vol_extra
                             
                             # solve for sramp_potential that gives the target volume
-                            sramp_new_r = brentq(f_ramp_dike_top, 0, dune_z['seaward_crest']-s_hs) + s_hs # find the new ramp height using the root finder padding only the top of the dike
-                            dune_x['ramp_dike_temp'] = ysprim + (((dune_z['seaward_crest'] - dfoot)-sramp_new_r)/betas) #pad the previous so that it only updates when fully filled
-                            dune_x['ramp_crest'] = ysprim_hs - ((sramp_new_r-s_hs)/betas) #foot based on the dike because it only moves once everything is filled
-                            dune_z['ramp_crest'] = sramp_new_r + dfoot
-                            dune_x['ramp_toe'] = dune_x['ramp_crest']+(sramp_new_r/betas)
-                            dune_z['ramp_toe'] = dfoot
-                            dune_z['ramp_dike_temp'] = sramp_new_r + dfoot #get the same height as the ramp until filled
+                            sramp_new_r = brentq(f_ramp_dike_top, 0, dune_z['seaward_crest']-substrate_z[3]) + substrate_z[3] # find the new ramp height using the root finder padding only the top of the dike
+                            dune_x['ramp_dike_temp'] = ysprim + (((dune_z['seaward_crest'])-sramp_new_r)/betas) #pad the previous so that it only updates when fully filled
+                            dune_x['ramp_crest'] = dune_x['ramp_crest'] - ((sramp_new_r-dune_z['ramp_crest'])/betas) #foot based on the dike because it only moves once everything is filled
+                            dune_z['ramp_crest'] = sramp_new_r
+                            #dune_x['ramp_toe'] = dune_x['ramp_crest']+(sramp_new_r/betas)
+                            #dune_z['ramp_toe'] = dfoot
+                            dune_z['ramp_dike_temp'] = sramp_new_r #get the same height as the ramp until filled
         
                             
                         else: #enough to fill everything and stop connection with dike
