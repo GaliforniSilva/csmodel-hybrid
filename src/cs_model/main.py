@@ -485,7 +485,7 @@ def run_model(config_path, check_mass_conservation=False):
         db_old = vbeach_old / (dune_x['shoreline'] - dune_x['ramp_toe'])
         vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
         
-        if i==51568:
+        if i==31043:
             print(i)
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
         dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)
