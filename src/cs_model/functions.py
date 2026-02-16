@@ -98,6 +98,34 @@ def load_config(path="config.yaml"):
 def ramp_volume(sramp_potential, sramp, ysprim, ys, betas, dfoot, substrate_x, substrate_z):
     '''
     Calculate volume of the ramp part of the dune.
+    
+    For a triangular ramp profile, this approximates to:
+        vramp ≈ 0.5 × (ys - ysprim)² × betas
+    
+    This function performs numerical integration for accuracy, which handles
+    substrate variations and complex geometries better than the simple formula.
+    
+    Parameters:
+    -----------
+    sramp_potential : float
+        Potential ramp height (above dfoot) [m]
+    sramp : float
+        Current ramp height (above dfoot) [m]
+    ysprim : float
+        X-position of ramp crest [m]
+    ys : float
+        X-position of ramp toe [m]
+    betas : float
+        Ramp slope (dz/dx) [dimensionless]
+    dfoot : float
+        Elevation of dune foot [m]
+    substrate_x, substrate_z : arrays
+        Substrate profile coordinates [m]
+        
+    Returns:
+    --------
+    float
+        Ramp volume per unit width [m³/m]
     '''
     # toe position consistent with slope
     yspotential = ys + ((sramp_potential-sramp) / betas)

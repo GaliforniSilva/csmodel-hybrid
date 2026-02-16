@@ -276,6 +276,11 @@ def run_model(config_path, check_mass_conservation=False):
     # Calculate initial vbeach from shoreline position (yg) instead of using config value
     # to ensure consistency with the beach volume formula
     vbeach = ((p.yg - p.ys) - p.bl) / p.al
+    
+    # Initialize ramp volume from config
+    # NOTE: vramp must be geometrically consistent with dune parameters
+    # Formula: vramp = 0.5 × (ys - ysprim)² × betas
+    # Use validate_yaml_volumes.py to verify consistency before running
     vramp = p.vramp
     rhov_df = p.rhov_df
     rhov_dt = p.rhov_dt
