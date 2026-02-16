@@ -1390,7 +1390,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential, sramp_potential, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                try:
+                                    V = np.trapezoid(dune_z_crest, dune_x_crest)
+                                except AttributeError:
+                                    V = np.trapz(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
@@ -1445,7 +1448,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential - s_hs, sramp_potential - s_hs, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                try:
+                                    V = np.trapezoid(dune_z_crest, dune_x_crest)
+                                except AttributeError:
+                                    V = np.trapz(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
