@@ -85,6 +85,120 @@ def calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z):
     return total_volume(x_list, z_list, substrate_x, substrate_z)
 
 
+def calculate_compartment_volumes(dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, dclos, dfoot):
+    """
+    Calculate volumes for all compartments at a single timestep.
+    
+    Parameters
+    ----------
+    dune_x : dict
+        Dictionary of dune x-coordinates
+    dune_z : dict
+        Dictionary of dune z-coordinates
+    substrate_x : list
+        List of substrate x-coordinates
+    substrate_z : list
+        List of substrate z-coordinates
+    vbeach : float
+        Beach volume parameter
+    volbar : float
+        Bar volume
+    dclos : float
+        Closure depth
+    dfoot : float
+        Dune foot elevation
+        
+    Returns
+    -------
+    dict
+        Dictionary with 'dune', 'beach', 'bar', and 'total' volumes
+    """
+    dune_vol = calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z)
+    beach_vol = calculate_actual_beach_volume(dune_x, vbeach, dclos, dfoot)
+    bar_vol = volbar
+    total_vol = dune_vol + beach_vol + bar_vol
+    
+    return {
+        'dune': dune_vol,
+        'beach': beach_vol,
+        'bar': bar_vol,
+        'total': total_vol
+    }
+
+
+def calculate_timestep_conservation(volumes_current, volumes_prev, fluxes, dt, initial_volumes):
+    """
+    Calculate conservation metrics for a single timestep.
+    
+    Parameters
+    ----------
+    volumes_current : dict
+        Current timestep volumes (dune, beach, bar, total)
+    volumes_prev : dict
+        Previous timestep volumes (dune, beach, bar, total)
+    fluxes : dict
+        Fluxes for this timestep with keys:
+        - 'qs_ramp': Aeolian deposition on ramp
+        - 'qs_crest': Aeolian deposition on crest
+        - 'qs_lee': Aeolian deposition on lee
+        - 'qwnet': Net aeolian transport from beach
+        - 'qbar': Bar-beach exchange
+        - 'eroded_volume': Wave erosion from dune
+    dt : float
+        Time step in seconds
+    initial_volumes : dict
+        Initial volumes (for percentage calculations)
+        
+    Returns
+    -------
+    dict
+        Dictionary with conservation metrics for each compartment
+    """
+    # Calculate actual changes
+    delta_dune = volumes_current['dune'] - volumes_prev['dune']
+    delta_beach = volumes_current['beach'] - volumes_prev['beach']
+    delta_bar = volumes_current['bar'] - volumes_prev['bar']
+    delta_total = volumes_current['total'] - volumes_prev['total']
+    
+    # Calculate expected changes based on fluxes
+    total_aeolian = fluxes['qs_ramp'] + fluxes['qs_crest'] + fluxes['qs_lee']
+    qbar_vol = fluxes['qbar'] * dt
+    eroded = fluxes['eroded_volume']
+    qwnet_vol = fluxes['qwnet'] * dt
+    
+    expected_dune_change = total_aeolian - eroded
+    expected_beach_change = -qwnet_vol - qbar_vol + eroded
+    expected_bar_change = qbar_vol
+    expected_total_change = 0.0  # No external sources/sinks
+    
+    # Calculate errors
+    dune_error = delta_dune - expected_dune_change
+    beach_error = delta_beach - expected_beach_change
+    bar_error = delta_bar - expected_bar_change
+    total_error = delta_total - expected_total_change
+    
+    # Calculate percentage errors relative to initial volumes
+    dune_error_pct = 100 * abs(dune_error) / initial_volumes['dune'] if initial_volumes['dune'] > 0 else 0
+    beach_error_pct = 100 * abs(beach_error) / initial_volumes['beach'] if initial_volumes['beach'] > 0 else 0
+    bar_error_pct = 100 * abs(bar_error) / initial_volumes['bar'] if initial_volumes['bar'] > 0 else 0
+    total_error_pct = 100 * abs(total_error) / initial_volumes['total'] if initial_volumes['total'] > 0 else 0
+    
+    return {
+        'dune_error': dune_error,
+        'beach_error': beach_error,
+        'bar_error': bar_error,
+        'total_error': total_error,
+        'dune_error_pct': dune_error_pct,
+        'beach_error_pct': beach_error_pct,
+        'bar_error_pct': bar_error_pct,
+        'total_error_pct': total_error_pct,
+        'dune_volume': volumes_current['dune'],
+        'beach_volume': volumes_current['beach'],
+        'bar_volume': volumes_current['bar'],
+        'total_volume': volumes_current['total']
+    }
+
+
 def check_mass_conservation(results, config, verbose=True):
     """
     Check mass conservation in model results and generate a report.
