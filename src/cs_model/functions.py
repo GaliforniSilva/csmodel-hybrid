@@ -860,11 +860,38 @@ def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, 
     dx_crest = abs(dune_x['ramp_crest']-dune_x['lee_crest']) #find the x distance between the front and back of the crest
     dx_lee = abs(dune_x['lee_foot']-dune_x['lee_crest']) # find the distance between the back of the crest and the dune lee foot
     
-    if dx_ramp == 0 or dune_x['ramp_toe'] < substrate_x[4]: # condition where no ramp exists anymore because of erosion, so not need to calculate everything as everything will end up on the ramp
+    # function to check where the dune is sitting
+    def dike_surface_z(x, substrate_x, substrate_z):
+        x_crest_start = substrate_x[2]
+        x_crest_end   = substrate_x[3]
+        x_toe         = substrate_x[4]
+    
+        z_crest = substrate_z[2]
+        z_toe   = substrate_z[4]
+    
+        if x <= x_crest_start:
+            # landward side (if relevant)
+            return z_toe
+    
+        elif x_crest_start < x <= x_crest_end:
+            # crest plateau
+            return z_crest
+    
+        elif x_crest_end < x < x_toe:
+            # seaward slope (linear face)
+            return z_crest + (z_toe - z_crest) * (x - x_crest_end) / (x_toe - x_crest_end)
+    
+        else:
+            # foreland
+            return z_toe
+
+    # check if everything should be deposited in the ramp or not
+    z_dike = dike_surface_z(dune_x['seaward_crest'], substrate_x, substrate_z)
+    
+    if dx_ramp == 0 or dune_x['ramp_toe'] <= substrate_x[4] or (dune_x['seaward_crest'] <= substrate_x[3] and dune_z['seaward_crest'] <= substrate_z[3]) or abs(dune_z['seaward_crest'] - z_dike) <= 0.005 or dune_z['seaward_crest'] < z_dike - 0.005: # condition where no ramp exists anymore because of erosion, so not need to calculate everything as everything will end up on the ramp
         qs_ramp = qwnet * dt
         qs_crest = 0.0
         qs_lee = 0.0    
-        
     else:
         
          # positions of each block center
@@ -1291,24 +1318,74 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             # check if ramp is in front of the dike or not:
             if (dune_x['ramp_crest'] > dune_x['seaward_crest']) or (dune_x['seaward_crest'] == dune_x['ramp_crest'] and dune_x['seaward_crest'] < ys_hs):  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
                 
-                if dune_z['seaward_crest'] <= s_hs + 3: # there is no active dune on top of the dike, and everything is exposed
+                if dune_z['seaward_crest'] <= s_hs + dfoot: # there is no active dune on top of the dike, and everything is exposed
                     vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
+                    x_rampfoot_max = substrate_x[3] + (s_hs)/betas
                     
-                    if deltavramp < vrampmax_hs: # if the volume is not sufficient to fill the whole front of the dike:
-                        sramp_new_r = ((2 * deltavramp) / ((1 / betas) - (1 / betas_hs))) ** 0.5
+                    v_dike = (substrate_x[4]-substrate_x[3])*(substrate_z[3]-substrate_z[4])/2
+                    v_bottom_full = (x_rampfoot_max - substrate_x[3])*(substrate_z[3]-substrate_z[4])/2
+                    v_bottom = ((dune_x['ramp_toe'] - dune_x['ramp_crest'])*(dune_z['ramp_crest'] - dune_z['ramp_toe'])/2) - ((substrate_x[4]- dune_x['ramp_crest'])*(dune_z['ramp_crest'] - dune_z['ramp_toe'])/2)
+                    
+                    if v_bottom < 0:
+                        v_bottom = 0
+                        
+                    v_to_fill = v_bottom_full - v_dike - v_bottom #this is the volume to fill the front of the dike
+                    
+                    if deltavramp < v_to_fill: # if the volume is not sufficient to fill the whole front of the dike:
+                        sramp_new_r = ((2 * (deltavramp+v_bottom)) / ((1 / betas) - (1 / betas_hs))) ** 0.5
                         ysprim_new_r = ys_hs - (sramp_new_r/betas_hs)
                         ys_new_r = ysprim_new_r+(sramp_new_r/betas)
                         
+                        # check where to update:
+                        if ((dune_z['seaward_crest'] - dune_z['ramp_toe']) > s_hs and dune_x['ramp_toe'] <= substrate_x[4]) or dune_x['seaward_crest'] < dune_x['ramp_crest']: #check if no ramp or detacehd
+                           
+                           #check if there is ramp on top of the dune or not
+                           v_temp = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['seaward_crest'], substrate_x[4])
+                           
+                           if v_temp > 0: #means there is a ramp on top, not scarp
+                               dune_x['ramp_dike_temp'] = dune_x['seaward_crest'] + ((dune_z['seaward_crest'] - substrate_z[3])/betas)
+                               dune_z['ramp_dike_temp'] = s_hs + dfoot
+                           else: #assume a scarp
+                               dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
+                               dune_z['ramp_dike_temp'] = s_hs + dfoot
+       
+                           dune_x['ramp_toe'] = ys_new_r
+                           dune_x['ramp_toe_temp'] = ys_new_r
+                           dune_z['ramp_crest'] = sramp_new_r+dfoot
+                           dune_x['ramp_crest'] = ysprim_new_r
+
+                        else:
+                           
+                            if dune_z['seaward_crest'] < substrate_z[3]: #check again if there is on top or not
+                                dune_z['seaward_crest'] = sramp_new_r+dfoot
+                                dune_z['ramp_dike_temp'] = sramp_new_r+dfoot
+                                
+                            dune_x['ramp_toe'] = ys_new_r
+                            dune_x['ramp_toe_temp'] = ys_new_r
+                            dune_z['ramp_crest'] = sramp_new_r+dfoot
+                            dune_x['ramp_crest'] = ysprim_new_r
+                            dune_x['seaward_crest'] = ysprim_new_r
+                            dune_x['ramp_dike_temp'] = ysprim_new_r
+                           
+                        
+                    elif v_to_fill < 0: #case where the front is already filled but enters this part because of the remaining pivot crest locations
+                        #since there is no crest, just move the ramp forward
+                        vextra = deltavramp # extra volume that needs to be accomodated by moving the dune toe and ysprim
+                        
+                        ys_new_r = (vextra / dune_z['ramp_crest']) + ys # get the new seaward position of the ramp
+                        ysprim_new_r = ysprim + (vextra / dune_z['ramp_crest'])  # get the new crest position of the ramp 
+                        
                         dune_x['ramp_toe'] = ys_new_r
-                        dune_z['ramp_crest'] = sramp_new_r+dfoot
                         dune_x['ramp_crest'] = ysprim_new_r
                         dune_x['seaward_crest'] = ysprim_new_r
-                        
+                        dune_x['ramp_dike_temp'] = ysprim_new_r
+                        dune_z['seaward_crest'] = dune_z['ramp_crest']
+                        dune_z['ramp_dike_temp'] = dune_z['ramp_crest']
                         
                     else:
-                        vextra = deltavramp-vrampmax_hs #amount to be used to redistribute it in front of the dike
+                        vextra = deltavramp-v_to_fill #amount to be used to redistribute it in front of the dike
                         sramp_new_r = s_hs #fill completely up to the dike height                
-                        ysprim_new_r = ysprim_hs + (vextra / sramp_new_r)  # get the new crest position of the ramp 
+                        ysprim_new_r = ysprim + (vextra / sramp_new_r)  # get the new crest position of the ramp 
                         ys_new_r = (sramp_new_r/betas) + ysprim_new_r
                         
                         dune_x['ramp_toe'] = ys_new_r
@@ -1316,8 +1393,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         dune_x['ramp_crest'] = ysprim_new_r
                         dune_x['seaward_crest'] = ysprim_new_r
                         dune_z['seaward_crest'] = sramp_new_r+dfoot
-                        dune_x['crest_temp']= ysprim_new_r #ysprim
-                        dune_z['crest_temp'] = sramp_new_r+dfoot #s+dfoot
+                        dune_x['ramp_dike_temp']= ysprim_new_r #ysprim
+                        dune_z['ramp_dike_temp'] = sramp_new_r+dfoot #s+dfoot
                         
                 elif ys_temp < ys_hs and dune_z['seaward_crest'] > s_hs + 3: #there is dune on top but the height is not enough to fill the front
                     
@@ -1350,7 +1427,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                dune_x['ramp_dike_temp'] = dune_x['seaward_crest'] + ((dune_z['seaward_crest'] - substrate_z[3])/betas)
                                dune_z['ramp_dike_temp'] = s_hs + dfoot
                            else: #assume a scarp
-                               dune_x['ramp_dike_temp'] = dune_x['seaward_crest'].copy()
+                               dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
                                dune_z['ramp_dike_temp'] = s_hs + dfoot
        
                            dune_x['ramp_toe'] = ys_new_r
