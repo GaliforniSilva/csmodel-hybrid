@@ -342,6 +342,74 @@ def check_mass_conservation(results, config, verbose=True):
     report_print(f"  TOTAL ERROR: {total_error:>+12.6f} m³/m ({100*abs(total_error)/initial_total:.6f}%)")
     report_print()
     
+    # Time-series conservation analysis (if available)
+    if 'conservation' in results and len(results['conservation'].get('total_error', [])) > 0:
+        report_print("TIME-SERIES CONSERVATION ANALYSIS:")
+        report_print()
+        
+        conservation = results['conservation']
+        
+        # Find maximum errors
+        max_dune_error = np.max(np.abs(conservation['dune_error']))
+        max_beach_error = np.max(np.abs(conservation['beach_error']))
+        max_bar_error = np.max(np.abs(conservation['bar_error']))
+        max_total_error = np.max(np.abs(conservation['total_error']))
+        
+        # Find when maximum errors occurred
+        idx_max_dune = np.argmax(np.abs(conservation['dune_error']))
+        idx_max_beach = np.argmax(np.abs(conservation['beach_error']))
+        idx_max_bar = np.argmax(np.abs(conservation['bar_error']))
+        idx_max_total = np.argmax(np.abs(conservation['total_error']))
+        
+        # Calculate time for each max error
+        time_max_dune = (idx_max_dune * dt / 3600) if idx_max_dune > 0 else 0.0
+        time_max_beach = (idx_max_beach * dt / 3600) if idx_max_beach > 0 else 0.0
+        time_max_bar = (idx_max_bar * dt / 3600) if idx_max_bar > 0 else 0.0
+        time_max_total = (idx_max_total * dt / 3600) if idx_max_total > 0 else 0.0
+        
+        report_print("Maximum errors during simulation:")
+        report_print(f"  Dune:  {max_dune_error:>12.6e} m³/m at t={time_max_dune:>7.2f}h (step {idx_max_dune})")
+        report_print(f"  Beach: {max_beach_error:>12.6e} m³/m at t={time_max_beach:>7.2f}h (step {idx_max_beach})")
+        report_print(f"  Bar:   {max_bar_error:>12.6e} m³/m at t={time_max_bar:>7.2f}h (step {idx_max_bar})")
+        report_print(f"  Total: {max_total_error:>12.6e} m³/m at t={time_max_total:>7.2f}h (step {idx_max_total})")
+        report_print()
+        
+        # Calculate cumulative absolute errors
+        cumulative_dune = np.sum(np.abs(conservation['dune_error']))
+        cumulative_beach = np.sum(np.abs(conservation['beach_error']))
+        cumulative_bar = np.sum(np.abs(conservation['bar_error']))
+        cumulative_total = np.sum(np.abs(conservation['total_error']))
+        
+        report_print("Cumulative absolute errors:")
+        report_print(f"  Dune:  {cumulative_dune:>12.6e} m³/m")
+        report_print(f"  Beach: {cumulative_beach:>12.6e} m³/m")
+        report_print(f"  Bar:   {cumulative_bar:>12.6e} m³/m")
+        report_print(f"  Total: {cumulative_total:>12.6e} m³/m")
+        report_print()
+        
+        # Identify problematic timesteps (errors > 0.01% of initial volume)
+        threshold_pct = 0.01
+        problematic_steps = []
+        for i in range(len(conservation['total_error'])):
+            if (conservation['dune_error_pct'][i] > threshold_pct or 
+                conservation['beach_error_pct'][i] > threshold_pct or 
+                conservation['bar_error_pct'][i] > threshold_pct):
+                problematic_steps.append(i)
+        
+        if problematic_steps:
+            n_show = min(5, len(problematic_steps))
+            report_print(f"Timesteps with errors > {threshold_pct}% (showing first {n_show} of {len(problematic_steps)}):")
+            for step in problematic_steps[:n_show]:
+                time_h = (step * dt / 3600) if step > 0 else 0.0
+                report_print(f"  Step {step:4d} (t={time_h:7.2f}h): "
+                          f"Dune={conservation['dune_error_pct'][step]:.4f}%, "
+                          f"Beach={conservation['beach_error_pct'][step]:.4f}%, "
+                          f"Bar={conservation['bar_error_pct'][step]:.4f}%")
+        else:
+            report_print(f"✓ No timesteps with errors > {threshold_pct}% of initial volumes")
+        
+        report_print()
+    
     # Assessment
     error_threshold = 0.1  # 0.1% threshold
     total_error_percent = abs(100*total_error/initial_total)
