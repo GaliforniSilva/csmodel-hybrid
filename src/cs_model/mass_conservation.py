@@ -362,10 +362,10 @@ def check_mass_conservation(results, config, verbose=True):
         idx_max_total = np.argmax(np.abs(conservation['total_error']))
         
         # Calculate time for each max error
-        time_max_dune = (idx_max_dune * dt / 3600) if idx_max_dune > 0 else 0.0
-        time_max_beach = (idx_max_beach * dt / 3600) if idx_max_beach > 0 else 0.0
-        time_max_bar = (idx_max_bar * dt / 3600) if idx_max_bar > 0 else 0.0
-        time_max_total = (idx_max_total * dt / 3600) if idx_max_total > 0 else 0.0
+        time_max_dune = idx_max_dune * dt / 3600
+        time_max_beach = idx_max_beach * dt / 3600
+        time_max_bar = idx_max_bar * dt / 3600
+        time_max_total = idx_max_total * dt / 3600
         
         report_print("Maximum errors during simulation:")
         report_print(f"  Dune:  {max_dune_error:>12.6e} m³/m at t={time_max_dune:>7.2f}h (step {idx_max_dune})")
@@ -400,7 +400,7 @@ def check_mass_conservation(results, config, verbose=True):
             n_show = min(5, len(problematic_steps))
             report_print(f"Timesteps with errors > {threshold_pct}% (showing first {n_show} of {len(problematic_steps)}):")
             for step in problematic_steps[:n_show]:
-                time_h = (step * dt / 3600) if step > 0 else 0.0
+                time_h = step * dt / 3600
                 report_print(f"  Step {step:4d} (t={time_h:7.2f}h): "
                           f"Dune={conservation['dune_error_pct'][step]:.4f}%, "
                           f"Beach={conservation['beach_error_pct'][step]:.4f}%, "
