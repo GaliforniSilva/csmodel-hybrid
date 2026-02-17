@@ -43,7 +43,6 @@ def analyze_conservation_timeseries(results_file):
     # Conservation data includes initial state (t=0) plus all timesteps
     # So we need to create a time array that includes t=0
     time_array = np.array(results['time'])
-    dt = time_array[1] - time_array[0] if len(time_array) > 1 else 0
     # Prepend t=0 to time array to match conservation data
     time_with_initial = np.concatenate([[0], time_array])
     time_hours = time_with_initial / 3600  # Convert to hours

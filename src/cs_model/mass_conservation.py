@@ -177,11 +177,15 @@ def calculate_timestep_conservation(volumes_current, volumes_prev, fluxes, dt, i
     bar_error = delta_bar - expected_bar_change
     total_error = delta_total - expected_total_change
     
+    # Helper function to calculate percentage error safely
+    def calc_pct_error(error, initial_value):
+        return 100 * abs(error) / initial_value if initial_value > 0 else 0
+    
     # Calculate percentage errors relative to initial volumes
-    dune_error_pct = 100 * abs(dune_error) / initial_volumes['dune'] if initial_volumes['dune'] > 0 else 0
-    beach_error_pct = 100 * abs(beach_error) / initial_volumes['beach'] if initial_volumes['beach'] > 0 else 0
-    bar_error_pct = 100 * abs(bar_error) / initial_volumes['bar'] if initial_volumes['bar'] > 0 else 0
-    total_error_pct = 100 * abs(total_error) / initial_volumes['total'] if initial_volumes['total'] > 0 else 0
+    dune_error_pct = calc_pct_error(dune_error, initial_volumes['dune'])
+    beach_error_pct = calc_pct_error(beach_error, initial_volumes['beach'])
+    bar_error_pct = calc_pct_error(bar_error, initial_volumes['bar'])
+    total_error_pct = calc_pct_error(total_error, initial_volumes['total'])
     
     return {
         'dune_error': dune_error,
