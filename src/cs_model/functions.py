@@ -820,7 +820,7 @@ def duneeros(vramp, ysprim, betas, betal, s, erod, yl, ylprim, dfoot):
 
 ### Transport functions
 def wind_veg_reduction(u_in, L_block,
-                   rhov1, Cd1=0.05,
+                   rhov1, Cd1=0.03,
                    rhov2=0.0, Cd2=0.01):
     """
     Wind speed reduction due to vegetation (can include two species).
@@ -922,7 +922,7 @@ def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, 
                  + (slope_crest/np.pi) * np.log((x_lee - x_crest_minus)/(x_lee - x_crest_plus))
              
          # coefficients α (scaling factor controls amplitude of bed slope gradient influence) and β (relative wheigth of local slope term) for each block
-        alpha_ramp, beta_ramp = 2, 0.8
+        alpha_ramp, beta_ramp = 3, 0.8 #2, 0.8
         alpha_crest, beta_crest = 1.5, 0.2
         alpha_lee, beta_lee = 1.2, 0.8
         
@@ -988,30 +988,54 @@ def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, 
         F_c_crest = 1 -  min(cu_crest / max(cu_crest_bare, 1e-12), 1.0)
         F_c_lee = 1 - min(cu_lee / max(cu_lee_bare, 1e-12), 1.0)
          
-         # apply gradient based, so to ensure deposition accross when bare
-        G_ramp  = max(0, tu10 - umag_ramp)
-        G_crest = max(0, umag_ramp  - umag_crest)
-        G_lee   = max(0, umag_crest - umag_lee)
-         
-        G_sum = G_ramp + G_crest + G_lee
-         
+        #find gradients
+        Fg_ramp  = max(0, tu10 - umag_ramp) / max(tu10, 1e-12)
+        Fg_crest = max(0, umag_ramp - umag_crest) / max(umag_ramp, 1e-12)
+        Fg_lee   = max(0, umag_crest - umag_lee) / max(umag_crest, 1e-12)
+
+        #Fg_ramp  = max(0, cu_beach - cu_ramp) / max(cu_beach, 1e-12)
+        #Fg_crest = max(0, cu_ramp - cu_crest) / max(cu_ramp, 1e-12)
+        #Fg_lee   = max(0, cu_crest - cu_lee) / max(cu_crest, 1e-12)
+        
+        Fg_sum = Fg_ramp + Fg_crest + Fg_lee
+        
+        #combined prob
+        Fstar_ramp  = 1 - (1 - F_c_ramp)  * (1 - (Fg_ramp/max(Fg_sum, 1e-12)))
+        Fstar_crest = 1 - (1 - F_c_crest) * (1 - (Fg_crest/max(Fg_sum, 1e-12)))
+        Fstar_lee   = 1 - (1 - F_c_lee)   * (1 - (Fg_lee/max(Fg_sum, 1e-12)))
+
         qs_total = qwnet * dt
+
+        qs_ramp  = qs_total * Fstar_ramp
+        rem      = qs_total - qs_ramp
+        
+        qs_crest = rem * Fstar_crest
+        qs_lee   = qs_total - qs_ramp - qs_crest
+
+         # apply gradient based, so to ensure deposition accross when bare
+        # G_ramp  = max(0, tu10 - umag_ramp)
+        # G_crest = max(0, umag_ramp  - umag_crest)
+        # G_lee   = max(0, umag_crest - umag_lee)
          
-         # ramp 
-        if F_c_ramp > 1e-6:  # vegetation present → use it
-            qs_ramp = qs_total * F_c_ramp
-        else:                # no veg → fallback to gradient
-            qs_ramp = qs_total * (G_ramp / max(G_sum, 1e-12))
+        # G_sum = G_ramp + G_crest + G_lee
          
-        # --- crest ---
-        rem_after_ramp = qs_total - qs_ramp
-        if F_c_crest > 1e-6:
-            qs_crest = rem_after_ramp * F_c_crest
-        else:
-            qs_crest = rem_after_ramp * (G_crest / max(G_crest + G_lee, 1e-12))
+        # qs_total = qwnet * dt
          
-        # --- lee (whatever remains) ---
-        qs_lee = qs_total - (qs_ramp + qs_crest)
+        #  # ramp 
+        # if F_c_ramp > 1e-6:  # vegetation present → use it
+        #     qs_ramp = qs_total * F_c_ramp
+        # else:                # no veg → fallback to gradient
+        #     qs_ramp = qs_total * (G_ramp / max(G_sum, 1e-12))
+         
+        # # --- crest ---
+        # rem_after_ramp = qs_total - qs_ramp
+        # if F_c_crest > 1e-6:
+        #     qs_crest = rem_after_ramp * F_c_crest
+        # else:
+        #     qs_crest = rem_after_ramp * (G_crest / max(G_crest + G_lee, 1e-12))
+         
+        # # --- lee (whatever remains) ---
+        # qs_lee = qs_total - (qs_ramp + qs_crest)
         
          
         if dune_z['ramp_crest'] < dune_z['seaward_crest']: #case with scarp, enforce all depo in front             
@@ -1869,8 +1893,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_z['lee_foot'] = z_int_l
                     dune_x['lee_crest'] = ylprim_new_l
                     dune_z['lee_crest'] = s_new_c + dfoot
-                    dune_x['back_ref'] = yl_new_l #change the reference to the dunefoot to avoid calculating extra volume from the link between ref and dunefoot above reference
-                    dune_z['back_ref'] = z_int_l
+                    
+                    if dune_z['lee_foot'] > dune_z['back_ref']:
+                        dune_x['back_ref'] = yl_new_l #change the reference to the dunefoot to avoid calculating extra volume from the link between ref and dunefoot above reference
+                        dune_z['back_ref'] = z_int_l
                     
                 else: # otherwise, fill this space and spread the remaining volume in the crest only
                 

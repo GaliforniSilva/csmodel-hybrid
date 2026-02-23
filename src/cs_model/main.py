@@ -485,7 +485,7 @@ def run_model(config_path, check_mass_conservation=False):
         db_old = vbeach_old / (dune_x['shoreline'] - dune_x['ramp_toe'])
         vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
         
-        if i==23554:
+        if i==55012:
             print(i)
             
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
@@ -511,7 +511,7 @@ def run_model(config_path, check_mass_conservation=False):
         dune_height_time_series[i] = dune_z['seaward_crest'] - dune_z['ramp_toe']
         dune_foot_time_series[i] = dune_x['ramp_toe']
         total_water_level_time_series[i] = total_water_level
-        eroded_volume_time_series[i] = deltavramp #erod_ramp
+        eroded_volume_time_series[i] = deltavramp_ero #erod_ramp
         overwash_volume_time_series[i] = erod_overwash
         
         # Calculate new beach volume including eroded sediment from dune
