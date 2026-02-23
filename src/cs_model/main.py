@@ -79,6 +79,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from cs_model.functions import *
+from cs_model.mass_conservation import calculate_compartment_volumes, calculate_timestep_conservation
 import pickle
 
 ############################################################################
@@ -261,7 +262,22 @@ def run_model(config_path, check_mass_conservation=False):
         'wave_direction': wave_dir_time_series,
         'wind_speed': wind_speed_time_series,
         'wind_direction': wind_dir_time_series,
-        'time': np.arange(0, time_length_dt*p.dt, p.dt)
+        'time': np.arange(0, time_length_dt*p.dt, p.dt),
+        # Conservation time-series
+        'conservation': {
+            'dune_error': [],
+            'beach_error': [],
+            'bar_error': [],
+            'total_error': [],
+            'dune_error_pct': [],
+            'beach_error_pct': [],
+            'bar_error_pct': [],
+            'total_error_pct': [],
+            'dune_volume': [],
+            'beach_volume': [],
+            'bar_volume': [],
+            'total_volume': []
+        }
     }
 
     # Initialize cumulative time for vegetation update
@@ -285,6 +301,24 @@ def run_model(config_path, check_mass_conservation=False):
     rhov_db2 = p.rhov_db2
     volbar = p.volbar
     deltavall = 0
+
+    # Calculate initial volumes for conservation tracking
+    initial_volumes = calculate_compartment_volumes(
+        dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot
+    )
+    
+    # Store initial volumes in conservation tracking
+    for key in ['dune_volume', 'beach_volume', 'bar_volume', 'total_volume']:
+        compartment = key.replace('_volume', '')
+        results['conservation'][key].append(initial_volumes[compartment])
+    
+    # Initialize with zero errors for initial timestep
+    for key in ['dune_error', 'beach_error', 'bar_error', 'total_error',
+                'dune_error_pct', 'beach_error_pct', 'bar_error_pct', 'total_error_pct']:
+        results['conservation'][key].append(0.0)
+    
+    # Store reference to previous volumes for conservation tracking
+    prev_volumes = initial_volumes.copy()
 
     ############################################################################
     # START SIMULATION
@@ -524,6 +558,34 @@ def run_model(config_path, check_mass_conservation=False):
         # Calculate final beach volume for output
         vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
         vbeach_volume_time_series[i] = vbeach
+        
+        ####### CALCULATE CONSERVATION METRICS #######
+        # Calculate current volumes
+        current_volumes = calculate_compartment_volumes(
+            dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot
+        )
+        
+        # Prepare flux dictionary for conservation calculation
+        fluxes = {
+            'qs_ramp': qs_ramp,
+            'qs_crest': qs_crest,
+            'qs_lee': qs_lee,
+            'qwnet': qwnet,
+            'qbar': qbar,
+            'eroded_volume': deltavramp_ero
+        }
+        
+        # Calculate conservation metrics for this timestep
+        conservation_metrics = calculate_timestep_conservation(
+            current_volumes, prev_volumes, fluxes, p.dt, initial_volumes
+        )
+        
+        # Store conservation metrics
+        for key, value in conservation_metrics.items():
+            results['conservation'][key].append(value)
+        
+        # Update previous volumes for next iteration
+        prev_volumes = current_volumes.copy()
         
         ####### STORE OUTPUTS #######
         results['dune_x'].append(dune_x.copy())
