@@ -85,6 +85,124 @@ def calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z):
     return total_volume(x_list, z_list, substrate_x, substrate_z)
 
 
+def calculate_compartment_volumes(dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, dclos, dfoot):
+    """
+    Calculate volumes for all compartments at a single timestep.
+    
+    Parameters
+    ----------
+    dune_x : dict
+        Dictionary of dune x-coordinates
+    dune_z : dict
+        Dictionary of dune z-coordinates
+    substrate_x : list
+        List of substrate x-coordinates
+    substrate_z : list
+        List of substrate z-coordinates
+    vbeach : float
+        Beach volume parameter
+    volbar : float
+        Bar volume
+    dclos : float
+        Closure depth
+    dfoot : float
+        Dune foot elevation
+        
+    Returns
+    -------
+    dict
+        Dictionary with 'dune', 'beach', 'bar', and 'total' volumes
+    """
+    dune_vol = calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z)
+    beach_vol = calculate_actual_beach_volume(dune_x, vbeach, dclos, dfoot)
+    bar_vol = volbar
+    total_vol = dune_vol + beach_vol + bar_vol
+    
+    return {
+        'dune': dune_vol,
+        'beach': beach_vol,
+        'bar': bar_vol,
+        'total': total_vol
+    }
+
+
+def calculate_timestep_conservation(volumes_current, volumes_prev, fluxes, dt, initial_volumes):
+    """
+    Calculate conservation metrics for a single timestep.
+    
+    Parameters
+    ----------
+    volumes_current : dict
+        Current timestep volumes (dune, beach, bar, total)
+    volumes_prev : dict
+        Previous timestep volumes (dune, beach, bar, total)
+    fluxes : dict
+        Fluxes for this timestep with keys:
+        - 'qs_ramp': Aeolian deposition on ramp
+        - 'qs_crest': Aeolian deposition on crest
+        - 'qs_lee': Aeolian deposition on lee
+        - 'qwnet': Net aeolian transport from beach
+        - 'qbar': Bar-beach exchange
+        - 'eroded_volume': Wave erosion from dune
+    dt : float
+        Time step in seconds
+    initial_volumes : dict
+        Initial volumes (for percentage calculations)
+        
+    Returns
+    -------
+    dict
+        Dictionary with conservation metrics for each compartment
+    """
+    # Calculate actual changes
+    delta_dune = volumes_current['dune'] - volumes_prev['dune']
+    delta_beach = volumes_current['beach'] - volumes_prev['beach']
+    delta_bar = volumes_current['bar'] - volumes_prev['bar']
+    delta_total = volumes_current['total'] - volumes_prev['total']
+    
+    # Calculate expected changes based on fluxes
+    total_aeolian = fluxes['qs_ramp'] + fluxes['qs_crest'] + fluxes['qs_lee']
+    qbar_vol = fluxes['qbar'] * dt
+    eroded = fluxes['eroded_volume']
+    qwnet_vol = fluxes['qwnet'] * dt
+    
+    expected_dune_change = total_aeolian - eroded
+    expected_beach_change = -qwnet_vol - qbar_vol + eroded
+    expected_bar_change = qbar_vol
+    expected_total_change = 0.0  # No external sources/sinks
+    
+    # Calculate errors
+    dune_error = delta_dune - expected_dune_change
+    beach_error = delta_beach - expected_beach_change
+    bar_error = delta_bar - expected_bar_change
+    total_error = delta_total - expected_total_change
+    
+    # Helper function to calculate percentage error safely
+    def calc_pct_error(error, initial_value):
+        return 100 * abs(error) / initial_value if initial_value > 0 else 0
+    
+    # Calculate percentage errors relative to initial volumes
+    dune_error_pct = calc_pct_error(dune_error, initial_volumes['dune'])
+    beach_error_pct = calc_pct_error(beach_error, initial_volumes['beach'])
+    bar_error_pct = calc_pct_error(bar_error, initial_volumes['bar'])
+    total_error_pct = calc_pct_error(total_error, initial_volumes['total'])
+    
+    return {
+        'dune_error': dune_error,
+        'beach_error': beach_error,
+        'bar_error': bar_error,
+        'total_error': total_error,
+        'dune_error_pct': dune_error_pct,
+        'beach_error_pct': beach_error_pct,
+        'bar_error_pct': bar_error_pct,
+        'total_error_pct': total_error_pct,
+        'dune_volume': volumes_current['dune'],
+        'beach_volume': volumes_current['beach'],
+        'bar_volume': volumes_current['bar'],
+        'total_volume': volumes_current['total']
+    }
+
+
 def check_mass_conservation(results, config, verbose=True):
     """
     Check mass conservation in model results and generate a report.
@@ -223,6 +341,74 @@ def check_mass_conservation(results, config, verbose=True):
     report_print(f"  Bar error:   {bar_error:>+12.6f} m³/m ({100*abs(bar_error)/initial_bar_vol:.4f}%)")
     report_print(f"  TOTAL ERROR: {total_error:>+12.6f} m³/m ({100*abs(total_error)/initial_total:.6f}%)")
     report_print()
+    
+    # Time-series conservation analysis (if available)
+    if 'conservation' in results and len(results['conservation'].get('total_error', [])) > 0:
+        report_print("TIME-SERIES CONSERVATION ANALYSIS:")
+        report_print()
+        
+        conservation = results['conservation']
+        
+        # Find maximum errors
+        max_dune_error = np.max(np.abs(conservation['dune_error']))
+        max_beach_error = np.max(np.abs(conservation['beach_error']))
+        max_bar_error = np.max(np.abs(conservation['bar_error']))
+        max_total_error = np.max(np.abs(conservation['total_error']))
+        
+        # Find when maximum errors occurred
+        idx_max_dune = np.argmax(np.abs(conservation['dune_error']))
+        idx_max_beach = np.argmax(np.abs(conservation['beach_error']))
+        idx_max_bar = np.argmax(np.abs(conservation['bar_error']))
+        idx_max_total = np.argmax(np.abs(conservation['total_error']))
+        
+        # Calculate time for each max error
+        time_max_dune = idx_max_dune * dt / 3600
+        time_max_beach = idx_max_beach * dt / 3600
+        time_max_bar = idx_max_bar * dt / 3600
+        time_max_total = idx_max_total * dt / 3600
+        
+        report_print("Maximum errors during simulation:")
+        report_print(f"  Dune:  {max_dune_error:>12.6e} m³/m at t={time_max_dune:>7.2f}h (step {idx_max_dune})")
+        report_print(f"  Beach: {max_beach_error:>12.6e} m³/m at t={time_max_beach:>7.2f}h (step {idx_max_beach})")
+        report_print(f"  Bar:   {max_bar_error:>12.6e} m³/m at t={time_max_bar:>7.2f}h (step {idx_max_bar})")
+        report_print(f"  Total: {max_total_error:>12.6e} m³/m at t={time_max_total:>7.2f}h (step {idx_max_total})")
+        report_print()
+        
+        # Calculate cumulative absolute errors
+        cumulative_dune = np.sum(np.abs(conservation['dune_error']))
+        cumulative_beach = np.sum(np.abs(conservation['beach_error']))
+        cumulative_bar = np.sum(np.abs(conservation['bar_error']))
+        cumulative_total = np.sum(np.abs(conservation['total_error']))
+        
+        report_print("Cumulative absolute errors:")
+        report_print(f"  Dune:  {cumulative_dune:>12.6e} m³/m")
+        report_print(f"  Beach: {cumulative_beach:>12.6e} m³/m")
+        report_print(f"  Bar:   {cumulative_bar:>12.6e} m³/m")
+        report_print(f"  Total: {cumulative_total:>12.6e} m³/m")
+        report_print()
+        
+        # Identify problematic timesteps (errors > 0.01% of initial volume)
+        threshold_pct = 0.01
+        problematic_steps = []
+        for i in range(len(conservation['total_error'])):
+            if (conservation['dune_error_pct'][i] > threshold_pct or 
+                conservation['beach_error_pct'][i] > threshold_pct or 
+                conservation['bar_error_pct'][i] > threshold_pct):
+                problematic_steps.append(i)
+        
+        if problematic_steps:
+            n_show = min(5, len(problematic_steps))
+            report_print(f"Timesteps with errors > {threshold_pct}% (showing first {n_show} of {len(problematic_steps)}):")
+            for step in problematic_steps[:n_show]:
+                time_h = step * dt / 3600
+                report_print(f"  Step {step:4d} (t={time_h:7.2f}h): "
+                          f"Dune={conservation['dune_error_pct'][step]:.4f}%, "
+                          f"Beach={conservation['beach_error_pct'][step]:.4f}%, "
+                          f"Bar={conservation['bar_error_pct'][step]:.4f}%")
+        else:
+            report_print(f"✓ No timesteps with errors > {threshold_pct}% of initial volumes")
+        
+        report_print()
     
     # Assessment
     error_threshold = 0.1  # 0.1% threshold
