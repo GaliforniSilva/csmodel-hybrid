@@ -1203,13 +1203,29 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
         if erod_overwash > 0: # if some of this erosion is due to overwash, move this volume to the lee portion
             # check available crest volume to be transported to the lee side
-            def f_crest_erosion(s_potential):
-                volume_full = total_volume([dune_x[k] for k in list(dune_x.keys())[1:8]], [dune_z[k] for k in list(dune_z.keys())[1:8]], substrate_x, substrate_z)
-                volume_potential = total_volume([dune_x[k] for k in list(dune_x.keys())[1:8]], [dune_z[k]-s_potential for k in list(dune_z.keys())[1:8]], substrate_x, substrate_z)
+            v_before_ero = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                                          dune_x['lee_foot'], dune_x['ramp_toe'])
 
-                V = volume_full - volume_potential
-                
-                return V - erod_overwash 
+            def f_crest_erosion(s_potential):
+                # Compute the actual volume eroded by applying the same geometry updates
+                # used below (seaward crest retreats landward; lee crest retreats landward
+                # by delta/betal to maintain slope betal, consistent with lee_volume).
+                delta = s_potential
+                s_test = dune_z['seaward_crest'] - delta
+                dx_t = dict(dune_x)
+                dz_t = dict(dune_z)
+                dx_t['lee_crest']     = dune_x['lee_crest']     - delta / betal
+                dx_t['seaward_crest'] = dune_x['seaward_crest'] - delta / betas
+                dx_t['crest_temp']    = dx_t['seaward_crest']
+                dz_t['lee_crest'] = dz_t['seaward_crest'] = dz_t['crest_temp'] = s_test
+                if dune_x['seaward_crest'] == dune_x['ramp_dike_temp'] and dune_x['seaward_crest'] >= ylprim_hs:
+                    dx_t['ramp_dike_temp'] = dx_t['seaward_crest']
+                    dz_t['ramp_dike_temp'] = s_test
+                if dune_z['ramp_crest'] == dune_z['seaward_crest']:
+                    dz_t['ramp_crest'] = s_test
+                v_after = partial_volume(dx_t, dz_t, substrate_x, substrate_z,
+                                         dx_t['lee_foot'], dx_t['ramp_toe'])
+                return (v_before_ero - v_after) - erod_overwash
             
             q_to_lee = 0.
                             
@@ -1220,10 +1236,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 if dune_z['seaward_crest'] - dfoot == s_hs:
                     q_to_lee = 0
                 else:
-                    q_to_lee = f_crest_erosion(s_hs+dfoot-s_new_ero) + erod_overwash
+                    q_to_lee = f_crest_erosion(dune_z['seaward_crest'] - (s_hs + dfoot)) + erod_overwash
                 s_new_ero = s_hs + dfoot #on these condition you cannot erode the dike
                 ysprim_new_c = dune_x['seaward_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betas
-                ylprim_new_c = dune_x['lee_crest'] + (dune_z['seaward_crest'] - s_new_ero) / betal
+                ylprim_new_c = dune_x['lee_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betal
 
 
                 if dune_x['seaward_crest'] == dune_x['ramp_dike_temp'] and dune_x['seaward_crest'] >= ylprim_hs:
@@ -1242,7 +1258,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             else:
                 q_to_lee = erod_overwash
                 ysprim_new_c = dune_x['seaward_crest'] - (dune_z['seaward_crest']- s_new_ero) / betas
-                ylprim_new_c = dune_x['lee_crest'] + (dune_z['seaward_crest'] - s_new_ero) / betal
+                ylprim_new_c = dune_x['lee_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betal
                 
                 if dune_x['seaward_crest'] == dune_x['ramp_dike_temp'] and dune_x['seaward_crest'] >= ylprim_hs:
                     dune_x['ramp_dike_temp'] = ysprim_new_c
