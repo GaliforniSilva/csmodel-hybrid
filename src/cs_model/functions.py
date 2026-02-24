@@ -1210,13 +1210,40 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
         if erod_overwash > 0: # if some of this erosion is due to overwash, move this volume to the lee portion --> No change in total dune volume, only reorganization within the dune
             # check available crest volume to be transported to the lee side
-            def f_crest_erosion(s_potential):
-                # Volume of the triangular cap removed when lowering the crest by s_potential
-                delta = s_potential
-                crest_width = dune_x['seaward_crest'] - dune_x['lee_crest']
-                V_cap = crest_width * delta + delta**2 / 2 * (1 / betas + 1 / betal)
-                
-                return V_cap - erod_overwash
+            
+            if dune_x['seaward_crest'] <= ylprim_hs:
+                # Dune is behind the dike: seaward face is constrained by the dike back.
+                # Use a volume-exact formulation: find delta such that the actual volume
+                # removed from the profile (partial_volume) equals erod_overwash.
+                # The seaward crest x-position is held fixed; ramp_dike_temp tracks the
+                # crest height down the dike back face; only the lee side recedes.
+                def f_crest_erosion(s_potential):
+                    delta = s_potential
+                    s_new = dune_z['seaward_crest'] - delta
+                    dx_temp = dict(dune_x)
+                    dz_temp = dict(dune_z)
+                    # seaward crest x stays fixed; only height decreases
+                    dz_temp['seaward_crest'] = s_new
+                    dz_temp['crest_temp'] = s_new
+                    # lee crest recedes by delta/betal
+                    dx_temp['lee_crest'] = dune_x['lee_crest'] - delta / betal
+                    dz_temp['lee_crest'] = s_new
+                    # ramp_dike_temp moves down the dike back face with the crest height
+                    dz_temp['ramp_dike_temp'] = s_new
+                    dx_temp['ramp_dike_temp'] = np.interp(s_new, substrate_z[1:3], substrate_x[1:3])
+                    # ramp_crest follows seaward_crest height if they were equal
+                    if dune_z['ramp_crest'] == dune_z['seaward_crest']:
+                        dz_temp['ramp_crest'] = s_new
+                    v_new = partial_volume(dx_temp, dz_temp, substrate_x, substrate_z,
+                                          dx_temp['lee_foot'], dx_temp['ramp_toe'])
+                    return vdune_test_before_overwash - v_new - erod_overwash
+            else:
+                def f_crest_erosion(s_potential):
+                    # Volume of the triangular cap removed when lowering the crest by s_potential
+                    delta = s_potential
+                    crest_width = dune_x['seaward_crest'] - dune_x['lee_crest']
+                    V_cap = crest_width * delta + delta**2 / 2 * (1 / betas + 1 / betal)
+                    return V_cap - erod_overwash
             
             q_to_lee = 0.
                             
@@ -1253,6 +1280,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 ysprim_new_c = dune_x['seaward_crest'] - (dune_z['seaward_crest']- s_new_ero) / betas
                 ylprim_new_c = dune_x['lee_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betal
                 
+                # When the dune is behind the dike the seaward crest x-position is constrained by the dike back face, so it must not move seaward.
+                #if dune_x['seaward_crest'] <= ylprim_hs:
+                #        ysprim_new_c = dune_x['seaward_crest']
+                        
                 if dune_x['seaward_crest'] == dune_x['ramp_dike_temp'] and dune_x['seaward_crest'] >= ylprim_hs:
                     dune_x['ramp_dike_temp'] = ysprim_new_c
                     dune_z['ramp_dike_temp'] = s_new_ero
@@ -1261,10 +1292,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_z['ramp_crest'] = s_new_ero
 
                 if dune_x['seaward_crest'] < ylprim_hs: # if the dune crest is now behind the dike crest, adjust to the dike crest
-                    dune_z['ramp_dike_temp'] = dune_z['seaward_crest']
-                    dune_x['ramp_dike_temp'] = np.interp(dune_z['seaward_crest'], substrate_z[1:3], substrate_x[1:3])
-                    #dune_z['ramp_dike_temp'] = s_new_ero
-                    #dune_x['ramp_dike_temp'] = np.interp(s_new_ero, substrate_z[1:3], substrate_x[1:3])
+                    #dune_z['ramp_dike_temp'] = dune_z['seaward_crest']
+                    #dune_x['ramp_dike_temp'] = np.interp(dune_z['seaward_crest'], substrate_z[1:3], substrate_x[1:3])
+                    dune_z['ramp_dike_temp'] = s_new_ero
+                    dune_x['ramp_dike_temp'] = np.interp(s_new_ero, substrate_z[1:3], substrate_x[1:3])
                     
                 dune_x['seaward_crest'] = ysprim_new_c
                 dune_x['lee_crest'] = ylprim_new_c
