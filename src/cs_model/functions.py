@@ -1275,7 +1275,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 
                 
             else:
-                q_to_lee = erod_overwash
                 ysprim_new_c = dune_x['seaward_crest'] - (dune_z['seaward_crest']- s_new_ero) / betas
                 ylprim_new_c = dune_x['lee_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betal
 
@@ -1302,7 +1301,14 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 dune_z['crest_temp'] = s_new_ero
                 dune_x['crest_temp'] = ysprim_new_c
 
-                    
+            # Use the actual volume removed by the crest update (as measured by
+            # partial_volume) rather than the analytical approximation.  This
+            # ensures the dune volume is exactly conserved: the same amount that
+            # was removed from the crest is deposited on the lee.
+            v_after_crest = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                                           dune_x['lee_foot'], dune_x['ramp_toe'])
+            q_to_lee = max(0.0, vdune_test_before_overwash - v_after_crest)
+
             if q_to_lee > 0:
                 deltavlee = q_to_lee
                 

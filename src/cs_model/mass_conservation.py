@@ -245,6 +245,8 @@ def check_mass_conservation(results, config, verbose=True):
     # Get parameters from config
     dclos = config['erosion']['dclos']
     dfoot = config['dune_parameters']['dfoot']
+    al    = config['constants']['al']
+    bl    = config['constants']['bl']
     
     substrate_x = results['substrate_x']
     substrate_z = results['substrate_z']
@@ -258,9 +260,12 @@ def check_mass_conservation(results, config, verbose=True):
     report_print(f"  Total simulation time: {total_time_hours:.1f} hours ({total_time_hours/24:.1f} days)")
     report_print()
     
-    # Calculate volumes at start and end
+    # Calculate volumes at start and end.
+    # Fix: derive initial vbeach from the initial geometry (results['vbeach'][0]
+    # is the beach volume *after* the first time step, not the initial state).
+    initial_vbeach = ((results['dune_x'][0]['shoreline'] - results['dune_x'][0]['ramp_toe']) - bl) / al
     initial_dune_vol = calc_dune_vol(results['dune_x'][0], results['dune_z'][0], substrate_x, substrate_z)
-    initial_beach_vol = calculate_actual_beach_volume(results['dune_x'][0], results['vbeach'][0], dclos, dfoot)
+    initial_beach_vol = calculate_actual_beach_volume(results['dune_x'][0], initial_vbeach, dclos, dfoot)
     initial_bar_vol = results['volbar'][0]
     initial_total = initial_dune_vol + initial_beach_vol + initial_bar_vol
     
@@ -315,17 +320,34 @@ def check_mass_conservation(results, config, verbose=True):
     report_print(f"  Wave erosion (from dune):             {-total_eroded:>12.4f} m³/m")
     report_print()
     
+    # Phantom correction: vbeachtot = ramp_toe*dfoot + shoreline*dclos + vbeach.
+    # When the dune toe (ramp_toe) moves by Δrt, vbeachtot changes by
+    # Δrt*(dfoot - db_old) even without any sediment flux.  This geometric
+    # effect is tracked step-by-step and added to the expected beach change so
+    # that the beach error reflects only real flux accounting discrepancies.
+    phantom_correction = 0.0
+    vb_prev = initial_vbeach
+    for i in range(n_steps):
+        rt_old = results['dune_x'][i]['ramp_toe']
+        sl_old = results['dune_x'][i]['shoreline']
+        rt_new = results['dune_x'][i + 1]['ramp_toe']
+        beach_width_old = sl_old - rt_old
+        db_old = vb_prev / beach_width_old if beach_width_old > 0 else 0.0
+        phantom_correction += (rt_new - rt_old) * (dfoot - db_old)
+        vb_prev = results['vbeach'][i]
+    
     # Mass balance assessment
     expected_dune_change = total_aeolian - total_eroded
-    expected_beach_change = -total_aeolian - total_qbar_vol + total_eroded
+    expected_beach_change = -total_aeolian - total_qbar_vol + total_eroded + phantom_correction
     expected_bar_change = total_qbar_vol
     expected_total_change = 0.0  # No external sources/sinks
     
     report_print("MASS BALANCE ASSESSMENT:")
     report_print()
-    report_print("Expected changes (based on fluxes):")
+    report_print("Expected changes (based on fluxes + geometric beach correction):")
     report_print(f"  Expected Δ Dune:  {expected_dune_change:>+12.4f} m³/m")
     report_print(f"  Expected Δ Beach: {expected_beach_change:>+12.4f} m³/m")
+    report_print(f"    (incl. phantom correction: {phantom_correction:>+.4f} m³/m)")
     report_print(f"  Expected Δ Bar:   {expected_bar_change:>+12.4f} m³/m")
     report_print(f"  Expected Δ Total: {expected_total_change:>+12.4f} m³/m")
     report_print()
