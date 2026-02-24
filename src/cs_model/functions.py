@@ -1121,6 +1121,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             if dune_x['ramp_crest'] <= ylprim_hs and dune_z['seaward_crest'] - dfoot > s_hs:
                 erod_overwash = erod_ramp + erod_overwash #assume all go behind because there is no return flow anymore
                 erod_ramp = 0
+            elif dune_x['ramp_crest'] <= ylprim_hs and dune_z['seaward_crest'] - dfoot <= s_hs: #dune sheltered by the dike
+                erod_ramp = 0 #reduce ramp erosion to 0 and allow only overwash volume   
+            
             if erod_ramp > 0: #if there is potential erosion on the dune ramp
             # calculate maximum erosion volume on the ramp based on the dike limit
                 volume_max_ero = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe']) #whole dune is game
@@ -1258,10 +1261,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_z['ramp_crest'] = s_new_ero
 
                 if dune_x['seaward_crest'] < ylprim_hs: # if the dune crest is now behind the dike crest, adjust to the dike crest
-                    #dune_z['ramp_dike_temp'] = dune_z['seaward_crest']
-                    #dune_x['ramp_dike_temp'] = np.interp(dune_z['seaward_crest'], substrate_z[1:3], substrate_x[1:3])
-                    dune_z['ramp_dike_temp'] = s_new_ero
-                    dune_x['ramp_dike_temp'] = np.interp(s_new_ero, substrate_z[1:3], substrate_x[1:3])
+                    dune_z['ramp_dike_temp'] = dune_z['seaward_crest']
+                    dune_x['ramp_dike_temp'] = np.interp(dune_z['seaward_crest'], substrate_z[1:3], substrate_x[1:3])
+                    #dune_z['ramp_dike_temp'] = s_new_ero
+                    #dune_x['ramp_dike_temp'] = np.interp(s_new_ero, substrate_z[1:3], substrate_x[1:3])
                     
                 dune_x['seaward_crest'] = ysprim_new_c
                 dune_x['lee_crest'] = ylprim_new_c
