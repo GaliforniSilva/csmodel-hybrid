@@ -1291,9 +1291,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['ramp_dike_temp'] = ysprim_new_c
                     dune_z['ramp_dike_temp'] = s_new_ero
 
-                #if dune_z['ramp_crest'] == dune_z['seaward_crest']:
-                #    dune_z['ramp_crest'] = s_new_ero
-
                 if dune_x['seaward_crest'] < ylprim_hs: # if the dune crest is behind the dike crest, keep ramp_dike_temp consistent with the new crest height
                     dune_z['ramp_dike_temp'] = s_new_ero
                     dune_x['ramp_dike_temp'] = np.interp(s_new_ero, substrate_z[1:3], substrate_x[1:3])
