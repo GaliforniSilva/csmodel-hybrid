@@ -1310,51 +1310,69 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             q_to_lee = max(0.0, vdune_test_before_overwash - v_after_crest)
 
             if q_to_lee > 0:
-                deltavlee = q_to_lee
-                
+
                 ################## update lee ##################
 
-                vlee_c = lee_volume(dune_x['lee_crest'], dune_x, dune_z, betal, substrate_x, substrate_z)
-                vlee_target = vlee_c + deltavlee
-                
-                    
-                def f_lee_overwash(ylprim_potential):
-                    v_over = lee_volume(ylprim_potential, dune_x, dune_z, betal, substrate_x, substrate_z)
-                    
-                    return v_over - vlee_target
-                
-                # solve for ylprim_potential that gives the target volume
-                ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, dune_x['lee_crest']) # find the new lee height using the root finder
-                yl_flat = ylprim_new_l - (dune_z['seaward_crest']-dune_z['lee_foot']) / betal # get the new lee foot position assuming no hard structure
-                
-                # use shapely to find intersection between new lee line and potential hard structure
+                # Target total dune volume after the lee update equals exactly
+                # v_after_crest + q_to_lee  (= vdune_test_before_overwash).
+                # We solve for ylprim_potential using partial_volume so that the
+                # convergence criterion matches the final measurement exactly.
                 substrate_line = LineString(zip(substrate_x, substrate_z))
+                s_new_ero_lee = dune_z['seaward_crest']  # crest height already updated above
+                lee_foot_z_cur = dune_z['lee_foot']
+
+                def f_lee_overwash(ylprim_potential):
+                    # Compute the candidate lee-foot position via slope + substrate
+                    yl_flat_cand = ylprim_potential - (s_new_ero_lee - lee_foot_z_cur) / betal
+                    lee_line_cand = LineString([(ylprim_potential, s_new_ero_lee),
+                                               (yl_flat_cand, lee_foot_z_cur)])
+                    inter_cand = substrate_line.intersection(lee_line_cand)
+                    if not inter_cand.is_empty:
+                        if inter_cand.geom_type == "Point":
+                            yl_cand, zl_cand = inter_cand.x, inter_cand.y
+                        else:
+                            pts = [p for p in inter_cand.geoms if p.geom_type == "Point"]
+                            yl_cand, zl_cand = max(pts, key=lambda p: p.x).x, max(pts, key=lambda p: p.x).y
+                    else:
+                        yl_cand, zl_cand = yl_flat_cand, lee_foot_z_cur
+
+                    # Evaluate partial_volume with candidate lee geometry
+                    dx_trial = dict(dune_x)
+                    dz_trial = dict(dune_z)
+                    dx_trial['lee_foot']  = yl_cand
+                    dz_trial['lee_foot']  = zl_cand
+                    dx_trial['lee_crest'] = ylprim_potential
+                    dz_trial['lee_crest'] = s_new_ero_lee
+                    return (partial_volume(dx_trial, dz_trial, substrate_x, substrate_z,
+                                          dx_trial['lee_foot'], dx_trial['ramp_toe'])
+                            - vdune_test_before_overwash)
+
+                # solve for ylprim_potential that gives the target volume
+                ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, dune_x['lee_crest'])
+                yl_flat = ylprim_new_l - (s_new_ero_lee - lee_foot_z_cur) / betal
+
+                # use shapely to find intersection between new lee line and potential hard structure
                 # lee line: from lee crest (ylprim, s_new) to theoretical flat toe (yl_flat, dfoot)
-                lee_line = LineString([(ylprim_new_l, dune_z['seaward_crest']), (yl_flat, dune_z['lee_foot'])])
-                
+                lee_line = LineString([(ylprim_new_l, s_new_ero_lee), (yl_flat, lee_foot_z_cur)])
+
                 # find intersection(s)
                 intersection = substrate_line.intersection(lee_line)
-                
+
                 if not intersection.is_empty:
                     if intersection.geom_type == "Point":
                         yl_new_l, z_int_l = intersection.x, intersection.y
                     else:  # multiple intersections, take the shallowest one (max x)
                         points = [pt for pt in intersection.geoms if pt.geom_type == "Point"]
                         yl_new_l, z_int_l = max(points, key=lambda p: p.x).x, max(points, key=lambda p: p.x).y
-                
-                    
                 else:
                     # no intersection with hard substrate → use flat geometry
                     yl_new_l = yl_flat
-                    z_int_l = dune_z['lee_foot'] 
-                
-                # Update dune profile
-                # dune_x[1:3] = [yl_new_l, ylprim_new_l]
-                # dune_z[1:3] = [z_int_l, s_new_c + dfoot]
-                dune_x['lee_foot'] = yl_new_l
-                dune_z['lee_foot'] = z_int_l
+                    z_int_l = lee_foot_z_cur
+
+                dune_x['lee_foot']  = yl_new_l
+                dune_z['lee_foot']  = z_int_l
                 dune_x['lee_crest'] = ylprim_new_l
-                dune_z['lee_crest'] = s_new_ero
+                dune_z['lee_crest'] = s_new_ero_lee
 
         vdune_test_after_overwash = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
         

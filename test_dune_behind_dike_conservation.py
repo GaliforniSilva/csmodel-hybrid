@@ -43,14 +43,17 @@ def _collect_overwash_deltas(config_path):
 
 def test_overwash_conservation_dune_behind_dike():
     """
-    Verify that |Delta Volume Overwash| is small for every time step,
-    including and after the step when the dune crest crosses behind the dike.
+    Verify that |Delta Volume Overwash| is near machine precision for every
+    time step, including and after the step when the dune crest crosses
+    behind the dike.
 
     The test uses a high swl (10 m) so the dike is overtopped from the very
     first time step and the dune is pushed behind the dike early in the run.
-    The threshold (0.5 m²/m) is generous enough to accept pre-existing minor
-    numerical errors in other parts of the model while being tight enough to
-    detect the ~8 m²/m jump that was present before the fix.
+
+    After the fix the lee update uses partial_volume in the brentq solver so
+    the volume it converges to is exactly what partial_volume measures
+    afterwards.  The threshold (1e-10 m²/m) reflects this machine-precision
+    accuracy and detects any regression to the previous ~0.3 m²/m errors.
     """
     config = os.path.join(os.path.dirname(__file__), 'test_dune_behind_dike.yaml')
     deltas = _collect_overwash_deltas(config)
@@ -58,13 +61,13 @@ def test_overwash_conservation_dune_behind_dike():
     assert len(deltas) > 0, "No overwash steps found in the simulation output"
 
     max_abs_delta = max(abs(d) for d in deltas)
-    assert max_abs_delta < 0.5, (
-        f"Large overwash conservation violation detected: "
-        f"max |Delta Volume Overwash| = {max_abs_delta:.4f} m²/m "
-        f"(threshold = 0.5 m²/m). "
-        f"All deltas: {[round(d, 4) for d in deltas]}"
+    assert max_abs_delta < 1e-10, (
+        f"Overwash conservation violation detected: "
+        f"max |Delta Volume Overwash| = {max_abs_delta:.2e} m²/m "
+        f"(threshold = 1e-10 m²/m). "
+        f"All deltas: {[f'{d:.2e}' for d in deltas]}"
     )
-    print(f"✓ Max |Delta Volume Overwash| = {max_abs_delta:.6f} m²/m  (all {len(deltas)} steps)")
+    print(f"✓ Max |Delta Volume Overwash| = {max_abs_delta:.2e} m²/m  (all {len(deltas)} steps)")
 
 
 if __name__ == '__main__':

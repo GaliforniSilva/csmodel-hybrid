@@ -340,7 +340,14 @@ def check_mass_conservation(results, config, verbose=True):
     expected_dune_change = total_aeolian - total_eroded
     expected_beach_change = -total_aeolian - total_qbar_vol + total_eroded + phantom_correction
     expected_bar_change = total_qbar_vol
-    expected_total_change = 0.0  # No external sources/sinks
+    # The phantom_correction accounts for the geometric change in vbeachtot when
+    # the dune toe (ramp_toe) moves: the metric vbeachtot = ramp_toe*dfoot +
+    # shoreline*dclos + vbeach shifts even without any real sediment exchange.
+    # This replaces the previous assumption of 0.0.  Since there are no external
+    # sediment sources or sinks, the sum of all three expected compartment
+    # changes must equal phantom_correction (the dune and bar terms cancel out,
+    # leaving only this geometric offset from the beach metric definition).
+    expected_total_change = phantom_correction
     
     report_print("MASS BALANCE ASSESSMENT:")
     report_print()
