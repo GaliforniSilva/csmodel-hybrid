@@ -547,9 +547,14 @@ def run_model(config_path, check_mass_conservation=False):
         total_water_level_time_series[i] = total_water_level
         eroded_volume_time_series[i] = deltavramp_ero #erod_ramp
         overwash_volume_time_series[i] = erod_overwash
+                
+        # Calculate beach volume after morpho_update, but before the shoreline movement (so to not account the volume created by the moving dune)
+        vbeach_phantom = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
+        db_phantom = vbeach_phantom / (dune_x['shoreline'] - dune_x['ramp_toe'])
+        vbeachtot_phantom = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
         
         # Calculate new beach volume including eroded sediment from dune
-        vbeachtotnew = vbeachtot_old + (-qwnet - qslr + qnour - qbar) * p.dt + vnourb[i] + deltavramp_ero
+        vbeachtotnew = vbeachtot_phantom + (-qwnet - qslr + qnour - qbar) * p.dt + vnourb[i] + deltavramp_ero
         vbeachtotmin = dune_x['ramp_toe'] * (p.dclos + p.dfoot) + 0.5 * p.dfoot**2 / p.betaf + p.dfoot / p.betaf * p.dclos
 
         # Calculate new shoreline coordinate
@@ -557,8 +562,11 @@ def run_model(config_path, check_mass_conservation=False):
         
         # Calculate final beach volume for output
         vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
-        vbeach_volume_time_series[i] = vbeach
+        vbeach_volume_time_series[i] = vbeach # actual vbeach
         
+        #delta_vbeach_volume_time_series[i] = vbeach - vbeach_phantom #change based on the phantom
+        #delta_vbeachtot_volume_time_series[i] = vbeachtotnew - vbeachtot_phantom #beachtot change based on phantom
+
         ####### CALCULATE CONSERVATION METRICS #######
         # Calculate current volumes
         current_volumes = calculate_compartment_volumes(
