@@ -1220,12 +1220,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             s_new_ero = dune_z['seaward_crest'] - brentq(f_crest_erosion, 0, dune_z['seaward_crest'] - dfoot)
         
             #check if there is a dike and, if so, limit the erosion until the top of the dike
-            if s_hs <= dune_z['seaward_crest'] - dfoot and ((ysprim_hs < dune_x['seaward_crest'] and ysprim_hs > dune_x['lee_crest']) or (ylprim_hs < dune_x['seaward_crest'] and ylprim_hs > dune_x['lee_crest'])) and s_new_ero - dfoot < s_hs:
+            if s_hs <= dune_z['seaward_crest'] - dfoot and ((ysprim_hs < dune_x['seaward_crest'] and ysprim_hs > dune_x['lee_crest']) or (ylprim_hs < dune_x['seaward_crest'] and ylprim_hs > dune_x['lee_crest'])) and s_new_ero - dfoot <= s_hs:
                 if dune_z['seaward_crest'] - dfoot == s_hs:
                     q_to_lee = 0
                 else:
                     #q_to_lee = f_crest_erosion(s_hs+dfoot-s_new_ero) + erod_overwash
                     q_to_lee = f_crest_erosion(dune_z['seaward_crest'] - (s_hs + dfoot)) + erod_overwash
+                erod_overwash = q_to_lee
                 s_new_ero = s_hs + dfoot #on these condition you cannot erode the dike
                 ysprim_new_c = dune_x['seaward_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betas
                 ylprim_new_c = dune_x['lee_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betal
