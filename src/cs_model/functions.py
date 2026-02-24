@@ -1283,6 +1283,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 if dune_x['seaward_crest'] <= ylprim_hs:
                     ysprim_new_c = dune_x['seaward_crest']
                 
+                # When the dune is behind the dike the seaward crest x-position is constrained by the dike back face, so it must not move seaward.
+                #if dune_x['seaward_crest'] <= ylprim_hs:
+                #        ysprim_new_c = dune_x['seaward_crest']
+                        
                 if dune_x['seaward_crest'] == dune_x['ramp_dike_temp'] and dune_x['seaward_crest'] >= ylprim_hs:
                     dune_x['ramp_dike_temp'] = ysprim_new_c
                     dune_z['ramp_dike_temp'] = s_new_ero
