@@ -1228,6 +1228,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 else:
                     #q_to_lee = f_crest_erosion(s_hs+dfoot-s_new_ero) + erod_overwash
                     q_to_lee = f_crest_erosion(dune_z['seaward_crest'] - (s_hs + dfoot)) + erod_overwash
+                # Update erod_overwash to the actual volume constrained by the non-erodible layer
+                erod_overwash = q_to_lee
                 s_new_ero = s_hs + dfoot #on these condition you cannot erode the dike
                 ysprim_new_c = dune_x['seaward_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betas
                 ylprim_new_c = dune_x['lee_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betal
