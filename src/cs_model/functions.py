@@ -1780,11 +1780,11 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 # check detached lee side
             
                 if dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] <= substrate_z[2]:
-                    s_new_c = brentq(f_crest_triangular_detach, s_hs, s_max_triangular+s)  # adjust 10 if necessary
+                    s_new_c = brentq(f_crest_triangular_detach, s, s_max_triangular+s)  # adjust 10 if necessary
                 
                     # Calculate corresponding pivot points
                     ysprim_new_c = dune_x['seaward_crest'] - (s_new_c - s) / betas
-                    ylprim_new_c = dune_x['crest_temp'] + (s_new_c - s) / betal
+                    ylprim_new_c = substrate_x[2] + (s_new_c - s) / betal
                     yl_new_c = dune_x['lee_foot']
                     z_int_c = dune_z['lee_foot']
                     ys_new_c = dune_x['ramp_toe']

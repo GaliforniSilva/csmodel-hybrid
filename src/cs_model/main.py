@@ -202,10 +202,17 @@ def run_model(config_path, check_mass_conservation=False):
     substrate_x = [0, p.yl_hs, p.ylprim_hs, p.ysprim_hs, p.ys_hs, p.yg]
     substrate_z = [p.base_elevation_back, p.base_elevation_back, p.s_hs + p.base_elevation_front, p.s_hs + p.base_elevation_front, p.base_elevation_front, p.base_elevation_front] # use base 0 = mean sea level throughout the profile for the calculations
 
+    # Enforce geometric consistency for the lee side: compute lee_foot from the lee
+    # crest position and angle of repose (betal) so that the landward slope equals
+    # betal exactly.  If the user-supplied yl differs from this derived value the
+    # angle would drift during the simulation because all morphodynamic updates use
+    # betal as the fixed angle of repose.
+    yl_init = p.ylprim - p.s / p.betal
+
     # Define dune profile as dictionaries for clarity
     dune_x = {
         'back_ref': 0.0,
-        'lee_foot': p.yl,
+        'lee_foot': yl_init,
         'lee_crest': p.ylprim,
         'crest_temp': p.ysprim,
         'seaward_crest': p.ysprim,
@@ -285,7 +292,7 @@ def run_model(config_path, check_mass_conservation=False):
     vegupdate = 0
     s_veg = p.s # allocate value for the vegetation growth calc
     ys_veg = p.ys # allocate value for the vegetation growth calc
-    yl_veg = p.yl # allocate value for the vegetation growth calc
+    yl_veg = dune_x['lee_foot'] # allocate value for the vegetation growth calc
     sramp_veg = p.sramp # allocate value for the vegetation growth calc
 
     # Initialize varying parameters
