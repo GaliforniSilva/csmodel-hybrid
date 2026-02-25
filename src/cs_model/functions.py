@@ -1706,6 +1706,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             
             # calculate the substrate under the crest
             vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
+            # default target for the detached solver (overridden in detach case below)
+            vcrestnew_detach = vcrestnew
             
             # check if needed to use temp of lee_crest due to detached lee_side
             
@@ -1713,6 +1715,11 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 # calculate maximum volume up till the crest becomes triangular (when ysprim=ylprim)
                 s_max_triangular = (betal * betas * (dune_x['seaward_crest'] - dune_x['crest_temp'])) / (betal + betas)
                 vcrest_triangular = 0.5 * (dune_x['seaward_crest'] - dune_x['crest_temp']) * s_max_triangular #max volume for triangular shape
+                # f_crest_triangular_detach only integrates from substrate_x[2] to seaward_crest,
+                # so its target volume must also exclude the portion landward of the dike back crest.
+                v_crest_on_dike = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                                                 substrate_x[2], dune_x['seaward_crest'])
+                vcrestnew_detach = v_crest_on_dike + deltavcrest
                        
             else:
                 # calculate maximum volume up till the crest becomes triangular (when ysprim=ylprim)
@@ -1772,10 +1779,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     # volume between crest line and substrate
                     V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
             
+                    # Use vcrestnew_detach: the target volume restricted to the on-dike portion
+                    # (from substrate_x[2] to seaward_crest), consistent with the integration bounds above.
                     if s_potential == s:
-                        return -vcrestnew
+                        return -vcrestnew_detach
                     else:
-                        return V - vcrestnew
+                        return V - vcrestnew_detach
                 
                 # check detached lee side
             
