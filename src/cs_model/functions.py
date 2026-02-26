@@ -1324,7 +1324,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 s_new_ero_lee = dune_z['seaward_crest']  # crest height already updated above
                 lee_foot_z_cur = dune_z['lee_foot']
 
-                def f_lee_overwash(ylprim_potential):
+                def _lee_trial_volume(ylprim_potential):
                     # Compute the candidate lee-foot position via slope + substrate
                     yl_flat_cand = ylprim_potential - (s_new_ero_lee - lee_foot_z_cur) / betal
                     lee_line_cand = LineString([(ylprim_potential, s_new_ero_lee),
@@ -1346,9 +1346,21 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dz_trial['lee_foot']  = zl_cand
                     dx_trial['lee_crest'] = ylprim_potential
                     dz_trial['lee_crest'] = s_new_ero_lee
-                    return (partial_volume(dx_trial, dz_trial, substrate_x, substrate_z,
-                                          dx_trial['lee_foot'], dx_trial['ramp_toe'])
-                            - vdune_test_before_overwash)
+                    return partial_volume(dx_trial, dz_trial, substrate_x, substrate_z,
+                                         dx_trial['lee_foot'], dx_trial['ramp_toe'])
+
+                # When substrate_z > dune_z['lee_foot'] (substrate above dune foot), the
+                # substrate intersection raises the trial lee-foot elevation above
+                # lee_foot_z_cur.  This makes the trial volume at the upper brentq bound
+                # larger than vdune_test_before_overwash, causing both bounds to share the
+                # same sign and brentq to fail.  Using the trial volume at the current
+                # (post-crest-erosion) lee_crest as the baseline ensures the upper bound
+                # always evaluates to -q_to_lee < 0, giving valid brackets in all cases.
+                v_lee_trial_baseline = _lee_trial_volume(dune_x['lee_crest'])
+                lee_volume_target = v_lee_trial_baseline + q_to_lee
+
+                def f_lee_overwash(ylprim_potential):
+                    return _lee_trial_volume(ylprim_potential) - lee_volume_target
 
                 # solve for ylprim_potential that gives the target volume
                 ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, dune_x['lee_crest'])

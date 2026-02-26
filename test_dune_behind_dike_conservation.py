@@ -70,6 +70,46 @@ def test_overwash_conservation_dune_behind_dike():
     print(f"✓ Max |Delta Volume Overwash| = {max_abs_delta:.2e} m²/m  (all {len(deltas)} steps)")
 
 
+def test_overwash_elevated_back_substrate():
+    """
+    Regression test for crash when base_elevation_back > dfoot.
+
+    When the substrate behind the dike is higher than the dune foot elevation
+    (base_elevation_back=6.0 > dfoot=3.0), the substrate intersection in the
+    lee update raises the trial lee-foot elevation above lee_foot_z_cur.  This
+    made the trial volume at the upper brentq bound exceed
+    vdune_test_before_overwash, causing both bounds to share the same sign and
+    brentq to raise ValueError('f(a) and f(b) must have different signs').
+
+    The fix computes a consistent trial baseline at the upper bound so that
+    brentq always receives a valid bracket.
+
+    Note: the first overwash step may produce a non-negligible Delta Volume
+    because the initial profile has the lee-foot below the substrate (an
+    initialisation inconsistency).  Subsequent steps should be at machine
+    precision.
+    """
+    config = os.path.join(os.path.dirname(__file__), 'test_katwijk_elevated_back.yaml')
+    # The primary assertion is that no exception is raised (previously crashed)
+    deltas = _collect_overwash_deltas(config)
+    assert len(deltas) > 0, "No overwash steps found in the simulation output"
+
+    # After the first step (which may have a large delta from the initial
+    # substrate/foot inconsistency), all subsequent steps must conserve volume
+    # at machine precision.
+    if len(deltas) > 1:
+        max_subsequent_delta = max(abs(d) for d in deltas[1:])
+        assert max_subsequent_delta < 1e-10, (
+            f"Overwash conservation violation after step 1: "
+            f"max |Delta Volume Overwash| = {max_subsequent_delta:.2e} m²/m"
+        )
+    print(f"✓ Elevated-back-substrate case completed with {len(deltas)} overwash steps")
+    print(f"  Step-1 delta = {deltas[0]:.2e} m²/m (initial substrate correction)")
+    if len(deltas) > 1:
+        print(f"  Max |delta| steps 2+: {max(abs(d) for d in deltas[1:]):.2e} m²/m")
+
+
 if __name__ == '__main__':
     test_overwash_conservation_dune_behind_dike()
+    test_overwash_elevated_back_substrate()
     print("All tests passed.")
