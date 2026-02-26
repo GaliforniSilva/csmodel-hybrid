@@ -21,6 +21,7 @@ License:
 # IMPORTS
 ############################################################################
 
+import os
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
@@ -41,7 +42,8 @@ def load_timeseries(
     column,
     default=None,
     sep="\t",
-    time_col="datetime"
+    time_col="datetime",
+    base_dir=None
 ):
     """
     Load a time series from file or create a constant array.
@@ -60,12 +62,19 @@ def load_timeseries(
         File separator.
     time_col : str
         Name of datetime column.
+    base_dir : str, optional
+        Directory used to resolve relative file paths.  When supplied,
+        a relative *source* path is joined with *base_dir* so that file
+        paths in the YAML config are resolved relative to the config
+        file's location rather than the current working directory.
 
     Returns
     -------
     np.ndarray
     """
     if isinstance(source, str):
+        if base_dir and not os.path.isabs(source):
+            source = os.path.join(base_dir, source)
         df = pd.read_csv(source, sep=sep, parse_dates=[time_col])
         df.set_index(time_col, inplace=True)
         return df[column].values
@@ -1243,8 +1252,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     return V_cap - erod_overwash
             
             q_to_lee = 0.
-                            
-            s_new_ero = dune_z['seaward_crest'] - brentq(f_crest_erosion, 0, dune_z['seaward_crest'] - dfoot)
+            
+            available_crest_height = dune_z['seaward_crest'] - dfoot
+            if available_crest_height > 0 and f_crest_erosion(available_crest_height) > 0:
+                s_new_ero = dune_z['seaward_crest'] - brentq(f_crest_erosion, 0, available_crest_height)
+            else:
+                # Overwash demand exceeds available crest volume; erode crest to dike crest level
+                s_new_ero = s_hs + dfoot
         
             #check if there is a dike and, if so, limit the erosion until the top of the dike
             if s_hs <= dune_z['seaward_crest'] - dfoot and ((ysprim_hs < dune_x['seaward_crest'] and ysprim_hs > dune_x['lee_crest']) or (ylprim_hs < dune_x['seaward_crest'] and ylprim_hs > dune_x['lee_crest'])) and s_new_ero - dfoot <= s_hs:
@@ -1412,7 +1426,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             # check if ramp is in front of the dike or not:
             if (dune_x['ramp_crest'] > dune_x['seaward_crest']) or (dune_x['seaward_crest'] == dune_x['ramp_crest'] and dune_x['seaward_crest'] < ys_hs):  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
                 
-                if dune_z['seaward_crest'] <= s_hs + dfoot: # there is no active dune on top of the dike, and everything is exposed
+                if dune_z['seaward_crest'] <= s_hs + dfoot or dune_x['ramp_toe'] <= ys_hs: # there is no active dune on top of the dike, OR ramp toe has retreated to/behind the dike seaward toe (post-erosion scarp: ramp_crest==seaward_crest, dike face exposed, recovery needed)
                     vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
                     x_rampfoot_max = substrate_x[3] + (s_hs)/betas
                     

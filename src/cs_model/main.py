@@ -120,6 +120,9 @@ def run_model(config_path, check_mass_conservation=False):
     # Load configuration
     config = load_config(config_path)
 
+    # Resolve relative file paths relative to the config file's directory
+    config_dir = os.path.dirname(os.path.abspath(config_path))
+
 
     # Inject each config key as a variable in the global namespace
     # for section, params in config.items():
@@ -142,31 +145,31 @@ def run_model(config_path, check_mass_conservation=False):
     time_length_dt = int(p.time_length_hours * 3600 / p.dt)
 
     wave_time_series = load_timeseries(
-        p.wave_height, time_length_dt, column="wave_height"
+        p.wave_height, time_length_dt, column="wave_height", base_dir=config_dir
     )
 
     wave_period_time_series = load_timeseries(
-        p.wave_period, time_length_dt, column="wave_period"
+        p.wave_period, time_length_dt, column="wave_period", base_dir=config_dir
     )
 
     wave_dir_time_series = load_timeseries(
-        p.wave_direction, time_length_dt, column="wave_direction"
+        p.wave_direction, time_length_dt, column="wave_direction", base_dir=config_dir
     )
 
     swl_time_series = load_timeseries(
-        p.swl, time_length_dt, column="swl"
+        p.swl, time_length_dt, column="swl", base_dir=config_dir
     )
 
     wind_speed_time_series = load_timeseries(
-        p.wind_speed, time_length_dt, column="wind_speed"
+        p.wind_speed, time_length_dt, column="wind_speed", base_dir=config_dir
     )
 
     wind_dir_time_series = load_timeseries(
-        p.wind_direction, time_length_dt, column="wind_direction"
+        p.wind_direction, time_length_dt, column="wind_direction", base_dir=config_dir
     )
 
     month_timeseries = load_timeseries(
-        p.month, time_length_dt, column="month", default=7
+        p.month, time_length_dt, column="month", default=7, base_dir=config_dir
     )
 
 
