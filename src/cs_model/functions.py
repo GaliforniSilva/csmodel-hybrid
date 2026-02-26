@@ -1260,7 +1260,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 ysprim_new_c = dune_x['seaward_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betas
                 ylprim_new_c = dune_x['lee_crest'] - (dune_z['seaward_crest'] - s_new_ero) / betal
 
-
                 if dune_x['seaward_crest'] == dune_x['ramp_dike_temp'] and dune_x['seaward_crest'] >= ylprim_hs:
                     dune_x['ramp_dike_temp'] = ysprim_new_c
                     dune_z['ramp_dike_temp'] = s_new_ero
@@ -1286,7 +1285,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 # When the dune is behind the dike the seaward crest x-position is constrained by the dike back face, so it must not move seaward.
                 #if dune_x['seaward_crest'] <= ylprim_hs:
                 #        ysprim_new_c = dune_x['seaward_crest']
-                        
+                if dune_z['ramp_crest'] == dune_z['seaward_crest']: #check if filled ramp or not
+                    dune_z['ramp_crest'] = s_new_ero
+                    dune_x['ramp_crest'] = ysprim_new_c
+                    
                 if dune_x['seaward_crest'] == dune_x['ramp_dike_temp'] and dune_x['seaward_crest'] >= ylprim_hs:
                     dune_x['ramp_dike_temp'] = ysprim_new_c
                     dune_z['ramp_dike_temp'] = s_new_ero
