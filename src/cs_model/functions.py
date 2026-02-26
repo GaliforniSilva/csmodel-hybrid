@@ -1217,15 +1217,14 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 # The seaward crest x-position is held fixed; ramp_dike_temp tracks the
                 # crest height down the dike back face; only the lee side recedes.
                 def f_crest_erosion(s_potential):
-                    delta = s_potential
-                    s_new = dune_z['seaward_crest'] - delta
+                    s_new = dune_z['seaward_crest'] - s_potential
                     dx_temp = dict(dune_x)
                     dz_temp = dict(dune_z)
                     # seaward crest x stays fixed; only height decreases
                     dz_temp['seaward_crest'] = s_new
                     dz_temp['crest_temp'] = s_new
                     # lee crest recedes by delta/betal
-                    dx_temp['lee_crest'] = dune_x['lee_crest'] - delta / betal
+                    dx_temp['lee_crest'] = dune_x['lee_crest'] - s_potential / betal
                     dz_temp['lee_crest'] = s_new
                     # ramp_dike_temp moves down the dike back face with the crest height
                     dz_temp['ramp_dike_temp'] = s_new
@@ -1239,9 +1238,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             else:
                 def f_crest_erosion(s_potential):
                     # Volume of the triangular cap removed when lowering the crest by s_potential
-                    delta = s_potential
                     crest_width = dune_x['seaward_crest'] - dune_x['lee_crest']
-                    V_cap = crest_width * delta + delta**2 / 2 * (1 / betas + 1 / betal)
+                    V_cap = crest_width * s_potential + s_potential**2 / 2 * (1 / betas + 1 / betal)
                     return V_cap - erod_overwash
             
             q_to_lee = 0.
@@ -1296,7 +1294,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 if dune_x['seaward_crest'] < ylprim_hs: # if the dune crest is behind the dike crest, keep ramp_dike_temp consistent with the new crest height
                     dune_z['ramp_dike_temp'] = s_new_ero
                     dune_x['ramp_dike_temp'] = np.interp(s_new_ero, substrate_z[1:3], substrate_x[1:3])
-                    
+                    dune_x['ramp_dike_temp'] = ysprim_new_c
+
                 dune_x['seaward_crest'] = ysprim_new_c
                 dune_x['lee_crest'] = ylprim_new_c
                 dune_z['seaward_crest'] = s_new_ero
@@ -1351,7 +1350,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                             - vdune_test_before_overwash)
 
                 # solve for ylprim_potential that gives the target volume
-                ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, dune_x['lee_crest'])
+                ub_lee = dune_x['lee_foot'] + (s_new_ero_lee - lee_foot_z_cur) / betal
+                ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, ub_lee)
+                #ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, dune_x['lee_crest'])
                 yl_flat = ylprim_new_l - (s_new_ero_lee - lee_foot_z_cur) / betal
 
                 # use shapely to find intersection between new lee line and potential hard structure
@@ -1379,7 +1380,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
         vdune_test_after_overwash = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
         
-        print('Delta Volume Overwash = ', vdune_test_after_overwash - vdune_test_before_overwash)
+        #print('Delta Volume Overwash = ', vdune_test_after_overwash - vdune_test_before_overwash)
     # case 2: dune accretion
     
     else:

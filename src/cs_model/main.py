@@ -216,9 +216,10 @@ def run_model(config_path, check_mass_conservation=False):
         'shoreline': p.yg
     }
 
+    lee_base = getattr(p, "dfoot_back", p.dfoot)
     dune_z = {
-        'back_ref': p.dfoot,
-        'lee_foot': p.dfoot,
+        'back_ref': lee_base,
+        'lee_foot': lee_base,
         'lee_crest': p.s + p.dfoot,
         'crest_temp': p.s + p.dfoot,
         'seaward_crest': p.s + p.dfoot,
@@ -228,7 +229,7 @@ def run_model(config_path, check_mass_conservation=False):
         'ramp_toe': p.dfoot,
         'shoreline': 0.0
     }
-
+    
     # Initialize results dictionary to store time series
     results = {
         'dune_x': [dune_x.copy()],
@@ -519,7 +520,7 @@ def run_model(config_path, check_mass_conservation=False):
         db_old = vbeach_old / (dune_x['shoreline'] - dune_x['ramp_toe'])
         vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
         
-        if i==23512:
+        if i==8784:
             print(i)
             
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
