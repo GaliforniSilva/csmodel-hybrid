@@ -1,0 +1,102 @@
+dike_parameters:
+  yl_hs: 72
+  ys_hs: 200
+  s_hs: 5.5
+  betas_hs: 0.5
+  betal_hs: 0.5
+  ylprim_hs: 83
+  ysprim_hs: 189
+  base_elevation_front: 3.0
+  base_elevation_back: 3.0
+
+dune_parameters:
+  betas: 0.1
+  betal: 0.1
+  betaf: 0.01
+  bw: 100.0
+  s: 6.0
+  sramp: 6.0
+  ys: 260
+  ysprim: 200
+  ylprim: 80
+  yl: 20
+  dfoot: 3.0
+  shorn: 330.0
+  yg: 400.0
+
+dune_volumes:
+  vramp: 80.0
+  vbeach: 150.0
+  volbar: 22.5
+
+sediment_transport:
+  qs: 0.0
+  ql: 0.0
+
+constants:
+  rhos: 2650.0
+  rhoa: 1.2
+  d50ref: 0.25e-3
+  awind: 0.1
+  p: 0.4
+  z: 10
+  kappa: 0.4
+  cb: 0.08
+  t: 0.5
+  g: 9.81
+  kw: 4.2
+  cwrate: 0.1
+  sedbud: 2
+  vegcount: 1
+  cf: 0.03
+  bactive: 1000
+  slr: 0
+  a: 0.6
+  aprim: 0.4
+  asfn: 0.2
+  cb_cs: 0.1
+  temp: 10
+  bl: 38.907
+  al: 0.44921
+
+nourishments:
+  vanr: 0
+  barnour_total: 0
+  barnour_time_length: 100
+
+vegetation:
+  rhov_df: 0.0
+  rhov_dt: 0.0
+  rhov_db: 0.0
+  rhov_df2: 0.0
+  rhov_dt2: 0.0
+  rhov_db2: 0.0
+  vegdt: 7776000
+  cumdt: 0
+  vegupdate: 0
+  frontal_cover_scale_spec1: 40
+  frontal_cover_scale_spec2: 5
+
+boundary_conditions:
+  cimpact: 1.4e-03
+  d50: 0.20e-3
+  wave_height: 1.0
+  wave_period: 6.0
+  wave_direction: 330.0
+  wind_speed: 10.0
+  wind_direction: 0.0
+  swl: 0.0
+
+erosion:
+  dclos: 8
+  deltavall: 0.0
+
+time_params:
+  time_length_hours: 8760
+  dt: 600.0
+  month: 7
+
+output:
+  filename: cs_model_test8.pkl
+
+
