@@ -1316,10 +1316,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
                 ################## update lee ##################
 
-                # Target total dune volume after the lee update equals exactly
-                # v_after_crest + q_to_lee  (= vdune_test_before_overwash).
-                # We solve for ylprim_potential using partial_volume so that the
-                # convergence criterion matches the final measurement exactly.
+                # Solve for ylprim_potential such that partial_volume equals
+                # vdune_test_before_overwash (conserving sediment on the lee).
                 substrate_line = LineString(zip(substrate_x, substrate_z))
                 s_new_ero_lee = dune_z['seaward_crest']  # crest height already updated above
                 lee_foot_z_cur = dune_z['lee_foot']

@@ -138,6 +138,12 @@ def run_model(config_path, check_mass_conservation=False):
 
     p = SimpleNamespace(**params)
 
+    # dfoot_back is an optional parameter for the landward dune-foot elevation.
+    # Use it when the substrate at the back of the profile is higher than dfoot
+    # (e.g. a dike interior with base_elevation_back > dfoot).  When omitted,
+    # the landward base defaults to dfoot (existing behaviour).
+    dfoot_back = getattr(p, 'dfoot_back', None)
+
     # load boundary conditions
     time_length_dt = int(p.time_length_hours * 3600 / p.dt)
 
@@ -216,9 +222,10 @@ def run_model(config_path, check_mass_conservation=False):
         'shoreline': p.yg
     }
 
+    lee_base = dfoot_back if dfoot_back is not None else p.dfoot
     dune_z = {
-        'back_ref': p.dfoot,
-        'lee_foot': p.dfoot,
+        'back_ref': lee_base,
+        'lee_foot': lee_base,
         'lee_crest': p.s + p.dfoot,
         'crest_temp': p.s + p.dfoot,
         'seaward_crest': p.s + p.dfoot,
