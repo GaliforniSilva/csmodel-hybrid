@@ -1348,8 +1348,16 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                           dx_trial['lee_foot'], dx_trial['ramp_toe'])
                             - vdune_test_before_overwash)
 
-                # solve for ylprim_potential that gives the target volume
-                ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, dune_x['lee_crest'])
+                # solve for ylprim_potential that gives the target volume.
+                # Upper bound: the ylprim where the betal-slope reconstruction
+                # lands exactly at the current lee_foot.  For geometrically
+                # consistent initial profiles this equals dune_x['lee_crest'],
+                # so behaviour is unchanged.  When the lee face is steeper than
+                # betal (e.g. the user supplied a truncated lee foot), the old
+                # upper bound made f(upper) > 0; this corrected bound guarantees
+                # f(upper) < 0 in all cases.
+                ub_lee = dune_x['lee_foot'] + (s_new_ero_lee - lee_foot_z_cur) / betal
+                ylprim_new_l = brentq(f_lee_overwash, dune_x['lee_crest'] - 100, ub_lee)
                 yl_flat = ylprim_new_l - (s_new_ero_lee - lee_foot_z_cur) / betal
 
                 # use shapely to find intersection between new lee line and potential hard structure
