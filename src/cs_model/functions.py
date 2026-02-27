@@ -1151,7 +1151,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
         if erod_ramp > 0:
         # update dune profile after erosion
-            if ysprim_new > dune_x['ramp_crest']: #erosion stays within the ramp: update toe regardless of dike position
+            if ysprim_new > dune_x['ramp_crest']: #and ysprim_new > ys_hs: #still old ramp to erode further, so it becomes the toe. The case for outside the dike is to enforce proper enter only without interaction. 
                 dune_x['ramp_toe'] = ysprim_new
                 dune_x['ramp_toe_temp'] = ysprim_new
                 dune_z['ramp_toe_temp'] = srampnew
@@ -1423,8 +1423,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             
             # current, max, new
             vramp      = ramp_volume(dune_z['ramp_crest']-dfoot, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
-            x_foot_max = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot)/betas)
-            vrampmax   = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], x_foot_max, betas, dfoot, substrate_x, substrate_z)
+            if dune_x['seaward_crest'] <= substrate_x[2] and dune_z['seaward_crest'] <= substrate_z[2]: #case with detached lee side
+                x_foot_max = substrate_x[3] + (s_hs)/betas
+                vrampmax   = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs)))
+            else:
+                x_foot_max = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot)/betas)
+                vrampmax   = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], x_foot_max, betas, dfoot, substrate_x, substrate_z)
+             
             vrampnew   = vramp + deltavramp
             
             ys_temp = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot) /betas)
@@ -1505,8 +1510,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     else:
                         vextra = deltavramp-v_to_fill #amount to be used to redistribute it in front of the dike
                         sramp_new_r = s_hs #fill completely up to the dike height                
-                        ysprim_new_r = ysprim + (vextra / sramp_new_r)  # get the new crest position of the ramp 
-                        ys_new_r = (sramp_new_r/betas) + ysprim_new_r
+                        
+                        if dune_x['seaward_crest'] <= substrate_x[2] and dune_z['seaward_crest'] < substrate_z[2]: #case with detached lee side, use the ramp position
+                            ysprim_new_r = dune_x['ramp_crest'] + (vextra / sramp_new_r)  # get the new crest position of the ramp 
+                            ys_new_r = (sramp_new_r/betas) + ysprim_new_r
+                        else:
+                            ysprim_new_r = ysprim + (vextra / sramp_new_r)  # get the new crest position of the ramp 
+                            ys_new_r = (sramp_new_r/betas) + ysprim_new_r
                         
                         dune_x['ramp_toe'] = ys_new_r
                         dune_z['ramp_crest'] = sramp_new_r+dfoot

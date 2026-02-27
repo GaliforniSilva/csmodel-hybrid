@@ -520,7 +520,7 @@ def run_model(config_path, check_mass_conservation=False):
         db_old = vbeach_old / (dune_x['shoreline'] - dune_x['ramp_toe'])
         vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
         
-        if i>13391:
+        if i>71607:
             print(i)
             
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
