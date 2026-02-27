@@ -1,11 +1,11 @@
 dike_parameters:
-  yl_hs: 72
-  ys_hs: 200
+  yl_hs: 172
+  ys_hs: 300
   s_hs: 5.5
   betas_hs: 0.5
   betal_hs: 0.5
-  ylprim_hs: 83
-  ysprim_hs: 189
+  ylprim_hs: 183
+  ysprim_hs: 289
   base_elevation_front: 3.0
   base_elevation_back: 3.0
 
@@ -16,13 +16,13 @@ dune_parameters:
   bw: 100.0
   s: 6.0
   sramp: 6.0
-  ys: 260
-  ysprim: 200
-  ylprim: 80
-  yl: 20
+  ys: 360
+  ysprim: 300
+  ylprim: 180
+  yl: 120
   dfoot: 3.0
   shorn: 330.0
-  yg: 400.0
+  yg: 500.0
 
 dune_volumes:
   vramp: 80.0
