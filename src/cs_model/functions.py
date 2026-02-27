@@ -1835,16 +1835,23 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     # Guard: only call brentq when the bounds [s_hs, s_max_triangular+s]
                     # bracket a root. This can fail when vcrestnew > vcrest_triangular or
                     # when s_max_triangular+s <= s_hs (degenerate geometry).
+                    # When the root can't be found, keep the current height and redirect
+                    # the new deposition (deltavcrest) to the lee side to conserve mass.
+                    _detach_redirect = 0.0  # volume to redirect to lee in fallback
                     if s_max_triangular + s > s_hs:
                         fa = f_crest_triangular_detach(s_hs)
                         fb = f_crest_triangular_detach(s_max_triangular + s)
                         if fa * fb < 0:
                             s_new_c = brentq(f_crest_triangular_detach, s_hs, s_max_triangular+s)  # adjust 10 if necessary
                         else:
-                            # vcrestnew exceeds the triangular capacity - cap at maximum
-                            s_new_c = s_max_triangular + s
+                            # vcrestnew exceeds triangular cap: keep current height and
+                            # redirect new deposition to lee for mass conservation
+                            s_new_c = s
+                            _detach_redirect = deltavcrest
                     else:
-                        s_new_c = max(s, s_hs)  # degenerate: use dike height or current
+                        # degenerate geometry: can't grow, redirect to lee
+                        s_new_c = s
+                        _detach_redirect = deltavcrest
                 
                     # Calculate corresponding pivot points
                     ysprim_new_c = dune_x['seaward_crest'] - (s_new_c - s) / betas
@@ -1852,7 +1859,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     yl_new_c = dune_x['lee_foot']
                     z_int_c = dune_z['lee_foot']
                     ys_new_c = dune_x['ramp_toe']
-                    vlee_lateral = 0.0
+                    vlee_lateral = _detach_redirect  # 0 for normal path; deltavcrest in fallback
                 
                     #check volume
                     h = s_new_c - s
