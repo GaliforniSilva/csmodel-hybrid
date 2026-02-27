@@ -1437,7 +1437,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             # check if ramp is in front of the dike or not:
             if (dune_x['ramp_crest'] > dune_x['seaward_crest']) or (dune_x['seaward_crest'] == dune_x['ramp_crest'] and dune_x['seaward_crest'] < ys_hs):  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
                 
-                if dune_z['seaward_crest'] <= s_hs + dfoot or dune_x['ramp_toe'] < ys_hs: # there is no active dune on top of the dike, OR ramp toe has retreated strictly behind the dike seaward toe (post-erosion scarp: ramp_crest==seaward_crest, dike face exposed, recovery needed): # there is no active dune on top of the dike, and everything is exposed
+                if dune_z['seaward_crest'] <= s_hs + dfoot or dune_x['ramp_toe'] < ys_hs: # there is no active dune on top of the dike, OR ramp toe has retreated to/behind the dike seaward toe (post-erosion scarp: ramp_crest==seaward_crest, dike face exposed, recovery needed): # there is no active dune on top of the dike, and everything is exposed
                     vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
                     x_rampfoot_max = substrate_x[3] + (s_hs)/betas
                     
@@ -1630,6 +1630,16 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     def f_ramp_dike(sramp_potential):
                         return ramp_volume(sramp_potential, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z) - vrampnew
                     
+                    # ## solve for sramp_potential that gives the target volume
+                    # sramp_new_r = brentq(f_ramp_dike, dune_z['ramp_crest']-dfoot, dune_z['seaward_crest']-dfoot) # find the new ramp height using the root finder
+        
+                    # if sramp_new_r < s_hs: #check if the sramp is within the dike face
+                    #     ys_new_r = ys_hs + (sramp_new_r/betas) - (sramp_new_r/betas_hs)
+                    #     dune_x['ramp_crest'] = ys_new_r - (sramp_new_r/betas)
+                    #     dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
+                    #     dune_z['ramp_dike_temp'] = sramp_new_r + dfoot
+                    
+                    
                     # When the ramp height already equals the crest height the brentq
                     # bounds would be equal (no room to grow taller).  In this case the
                     # ramp has reached the crest and any new sand simply extends it
@@ -1642,7 +1652,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         dune_z['ramp_crest'] = sramp_new_r + dfoot
                         dune_x['ramp_crest'] = ysprim_new_r
                         dune_x['seaward_crest'] = ysprim_new_r
-                    else:
+        
+                    else: #needs new calculationgs
                         # solve for sramp_potential that gives the target volume
                         sramp_new_r = brentq(f_ramp_dike, dune_z['ramp_crest']-dfoot, dune_z['seaward_crest']-dfoot) # find the new ramp height using the root finder
 
@@ -1658,16 +1669,17 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                             vol_to_fill_top = ((ysprim_hs - dune_x['seaward_crest'])**2)*betas*0.5 #volume to fill the top of the dike and stop the intersection
                             vol_to_fill_face = ((((s_hs)**2)/(2*betas)))-((ys_hs-ysprim_hs)*(s_hs)*0.5) #volume to fill the face of the dike
                             vol_extra = vrampnew - vol_to_fill_face #extra volume that needs to be accomodated above the dike
-        
+                    
+                        
                             if vol_extra < vol_to_fill_top: #thus not enough to fill everything and stop connection with dike
-        
+            
                                 def f_ramp_dike_top(sramp_potential):
                                     toebound = ysprim_hs
                                     crestbound = dune_x['seaward_crest']
                                     sramp_prim_x = toebound - (sramp_potential/betas)
                                     dune_x_crest = np.array([crestbound, sramp_prim_x, toebound])
                                     dune_z_crest = np.array([sramp_potential - s_hs, sramp_potential - s_hs, 0])
-        
+            
                                     # volume between crest line and substrate
                                     V = np.trapz(dune_z_crest, dune_x_crest)
                             
@@ -1760,14 +1772,14 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             deltavcrest = qs_crest # how much sand is deposited on the crest
             
             # calculate the substrate under the crest
-            if dune_x['lee_crest'] < substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]: # if detached pad the crest to the dike
-                vcrestnew = partial_volume(dune_x, dune_z, substrate_x, substrate_z, substrate_x[2], dune_x['seaward_crest']) + deltavcrest # new volume of the crest after accretion
+            if dune_x['lee_crest'] < substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]:# if detached pad the crest to the dike
+                vcrestnew = partial_volume(dune_x,dune_z,substrate_x,substrate_z,substrate_x[2],dune_x['seaward_crest']) + deltavcrest # new volume of the crest after accretion
             else:
                 vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
             
             # check if needed to use temp of lee_crest due to detached lee_side
             
-            if dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] <= substrate_z[2]:
+            if dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]:
                 # calculate maximum volume up till the crest becomes triangular (when ysprim=ylprim)
                 s_max_triangular = (betal * betas * (dune_x['seaward_crest'] - dune_x['crest_temp'])) / (betal + betas)
                 vcrest_triangular = 0.5 * (dune_x['seaward_crest'] - dune_x['crest_temp']) * s_max_triangular #max volume for triangular shape
@@ -1834,15 +1846,71 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         return -vcrestnew
                     else:
                         return V - vcrestnew
+                    
+                def f_crest_triangular_detach_flatcrest(s_potential):
+        
+                    ystemp = dune_x['crest_temp'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block
+                    #yltemp = dune_x['crest_temp']
+                    yltemp = dune_x['lee_crest'] # fixed at dike position
+        
+                    ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
+                    ylprim_potential = yltemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
+            
+                    # linear crest line: from (ylprim_potential, s_potential) to (ysprim_potential, s_potential)
+                    dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
+                    dune_z_crest = np.array([0, s_potential-dune_z['crest_temp'], s_potential-dune_z['crest_temp'], 0])+substrate_z[1]
+            
+                    n_per_segment = 100  # how many points per segment
+                    x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
+                    z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
+            
+                    # substrate under crest
+                    z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
+            
+                    # volume between crest line and substrate
+                    V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
+            
+                    #if s_potential == s:
+                    #    return -vcrestnew
+                    #else:
+                    return V - vcrestnew
                 
                 # check detached lee side
-            
-                if dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] <= substrate_z[2]:
+                if dune_x['crest_temp'] > dune_x['lee_crest'] and dune_z['crest_temp'] == dune_z['lee_crest'] and dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] < dune_z['seaward_crest']: #substrate_z[2]: #detached with flat crest behind
+                    
+                    vcrestnew = vcrestnew + qs_lee #in this case makes the lee deposit on the top as well
+                    qs_lee = 0
+                    if f_crest_triangular_detach_flatcrest(dune_z['seaward_crest']) < 0 and f_crest_triangular_detach_flatcrest(dune_z['crest_temp']) < 0:
+                        s_new_c = dune_z['seaward_crest']
+                        vlee_lateral = f_crest_triangular_detach_flatcrest(dune_z['seaward_crest']) + vcrestnew
+                    else:
+                        s_new_c = brentq(f_crest_triangular_detach_flatcrest, dune_z['crest_temp'], dune_z['seaward_crest']) # adjust 10 if necessary
+                        vlee_lateral = 0.0
+                        
+                    # Calculate corresponding pivot points
+                    ysprim_new_c = dune_x['crest_temp'] + (s_new_c - dune_z['crest_temp']) / betal_hs
+                    ylprim_new_c = dune_x['lee_crest'] + (s_new_c - dune_z['crest_temp']) / betal
+                    #ylprim_new_c = substrate_x[2] + (s_new_c - s) / betal
+                    yl_new_c = dune_x['lee_foot']
+                    z_int_c = dune_z['lee_foot']
+                    ys_new_c = dune_x['ramp_toe']
+                    
+                
+                    #check volume
+                    # h = s_new_c - s
+                    # b_back = dune_x['seaward_crest'] - dune_x['lee_crest']
+                    # b_front = ysprim_new_c - ylprim_new_c
+                    # V_check = 0.5 * (b_back + b_front) * h
+                    
+                    detach_tag = 2
+                
+                elif dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]: #detached but slumping in the dike
                     s_new_c = brentq(f_crest_triangular_detach, s_hs, s_max_triangular+s)  # adjust 10 if necessary
                 
                     # Calculate corresponding pivot points
                     ysprim_new_c = dune_x['seaward_crest'] - (s_new_c - s) / betas
                     ylprim_new_c = dune_x['crest_temp'] + (s_new_c - s) / betal
+                    #ylprim_new_c = substrate_x[2] + (s_new_c - s) / betal
                     yl_new_c = dune_x['lee_foot']
                     z_int_c = dune_z['lee_foot']
                     ys_new_c = dune_x['ramp_toe']
@@ -1916,6 +1984,19 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             if detach_tag == 1: 
                 dune_x['crest_temp'] = ylprim_new_c
                 dune_z['crest_temp'] = s_new_c + dfoot
+                dune_x['seaward_crest'] = ysprim_new_c
+                dune_z['seaward_crest'] = s_new_c + dfoot
+                dune_z['ramp_dike_temp'] = s_new_c + dfoot
+                dune_x['ramp_dike_temp'] = ysprim_new_c
+                dune_x['ramp_crest'] = ysprim_new_c
+                dune_z['ramp_crest'] = s_new_c + dfoot
+                
+            elif detach_tag ==2:
+                dune_x['lee_crest'] = ylprim_new_c
+                dune_z['lee_crest'] = s_new_c
+                dune_z['crest_temp'] = s_new_c
+                dune_x['crest_temp'] = ysprim_new_c
+                
             else:
                 dune_x['lee_foot'] = yl_new_c
                 dune_z['lee_foot'] = z_int_c
@@ -1923,13 +2004,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 dune_z['lee_crest'] = s_new_c + dfoot
                 dune_x['crest_temp'] = ylprim_new_c
                 dune_z['crest_temp'] = s_new_c + dfoot
-                
-            dune_x['seaward_crest'] = ysprim_new_c
-            dune_z['seaward_crest'] = s_new_c + dfoot
-            dune_z['ramp_dike_temp'] = s_new_c + dfoot
-            dune_x['ramp_dike_temp'] = ysprim_new_c
-            dune_x['ramp_crest'] = ysprim_new_c
-            dune_z['ramp_crest'] = s_new_c + dfoot
+                dune_x['seaward_crest'] = ysprim_new_c
+                dune_z['seaward_crest'] = s_new_c + dfoot
+                dune_z['ramp_dike_temp'] = s_new_c + dfoot
+                dune_x['ramp_dike_temp'] = ysprim_new_c
+                dune_x['ramp_crest'] = ysprim_new_c
+                dune_z['ramp_crest'] = s_new_c + dfoot
+            
             dune_x['ramp_toe'] = ys_new_c
             dune_z['ramp_toe'] = dfoot
             dune_x['ramp_toe_temp'] = ys_new_c #TEST
@@ -2235,10 +2316,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         dune_z['back_ref'] = substrate_z[0]
                                  
                 # Check the need to start a new lee portion behind the dike structure
-                # Only applies when lee_crest is already on the dike back slope (>= dike landward foot);
-                # if the dune is fully detached (lee_crest.x < substrate_x[1]) the v_bottom formula
-                # would use a negative dx and produce a spurious large target volume, so skip it.
-                if (dune_x['lee_foot'] <= substrate_x[1] and dune_z['lee_foot'] == substrate_z[1]) and dune_z['lee_crest']<=substrate_z[2] and dune_x['lee_crest'] >= substrate_x[1]:
+                if (dune_x['lee_foot'] <= substrate_x[1] and dune_z['lee_foot'] == substrate_z[1]) and dune_z['lee_crest']<=substrate_z[2]:
                     
                     # check if the volume input exceed the needed to reconnect the lee side
                     x_leefoot_max = substrate_x[2] - (substrate_z[2]-substrate_z[1])/betal
@@ -2317,15 +2395,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     
                     # solve for ylprim_potential that gives the target volume
                     ylprim_new_l = brentq(f_lee, dune_x['lee_crest'] - 200, dune_x['lee_crest']) # find the new lee height using the root finder
-                    # when the lee is detached (flat surface behind dike), use the actual lee crest
-                    # height instead of seaward_crest height to avoid a wrong yl_flat and lee_line
-                    lee_height = dune_z['lee_crest'] if detach_tag == 1 else dune_z['seaward_crest']
-                    yl_flat = ylprim_new_l - (lee_height - dune_z['lee_foot']) / betal # get the new lee foot position assuming no hard structure
+                    yl_flat = ylprim_new_l - (dune_z['seaward_crest']-dune_z['lee_foot']) / betal # get the new lee foot position assuming no hard structure
                     
                     # use shapely to find intersection between new lee line and potential hard structure
                     substrate_line = LineString(zip(substrate_x, substrate_z))
                     # lee line: from lee crest (ylprim, s_new) to theoretical flat toe (yl_flat, dfoot)
-                    lee_line = LineString([(ylprim_new_l, lee_height), (yl_flat, dune_z['lee_foot'])])
+                    lee_line = LineString([(ylprim_new_l, dune_z['seaward_crest']), (yl_flat, dune_z['lee_foot'])])
                     
                     # find intersection(s)
                     intersection = substrate_line.intersection(lee_line)
@@ -2351,10 +2426,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['lee_foot'] = yl_new_l
                     dune_z['lee_foot'] = z_int_l
                     dune_x['lee_crest'] = ylprim_new_l
-                    if detach_tag == 0: # only snap z-heights to crest level when the lee is connected
-                        dune_z['lee_crest'] = s_new_c + dfoot
-                        dune_x['crest_temp'] = ylprim_new_l
-                        dune_z['crest_temp'] = s_new_c + dfoot
+                    dune_z['lee_crest'] = s_new_c + dfoot
+                    dune_x['crest_temp'] = ylprim_new_l
+                    dune_z['crest_temp'] = s_new_c + dfoot
                     
                     if dune_x['back_ref'] > dune_x['lee_foot']:
                         dune_x['back_ref'] = yl_new_l
