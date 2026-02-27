@@ -83,7 +83,7 @@ boundary_conditions:
   wave_height: 1.0
   wave_period: 6.0
   wave_direction: 330.0
-  wind_speed: 10.0
+  wind_speed: 12.0
   wind_direction: 0.0
   swl: 'synthetic_swl.txt'
 
@@ -92,7 +92,7 @@ erosion:
   deltavall: 0.0
 
 time_params:
-  time_length_hours: 2952
+  time_length_hours: 13175 #2952
   dt: 600.0
   month: 'synthetic_month.txt'
 
