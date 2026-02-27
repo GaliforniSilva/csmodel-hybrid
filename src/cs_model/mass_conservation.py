@@ -266,7 +266,7 @@ def check_mass_conservation(results, config, verbose=True):
     initial_vbeach = ((results['dune_x'][0]['shoreline'] - results['dune_x'][0]['ramp_toe']) - bl) / al
     initial_dune_vol = calc_dune_vol(results['dune_x'][0], results['dune_z'][0], substrate_x, substrate_z)
     initial_beach_vol = calculate_actual_beach_volume(results['dune_x'][0], initial_vbeach, dclos, dfoot)
-    initial_bar_vol = results['volbar'][0]
+    initial_bar_vol = results['volbar'][0] - results['qbar'][0] * dt  # true initial bar vol (before first update)
     initial_total = initial_dune_vol + initial_beach_vol + initial_bar_vol
     
     final_dune_vol = calc_dune_vol(results['dune_x'][-1], results['dune_z'][-1], substrate_x, substrate_z)
