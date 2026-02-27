@@ -1760,7 +1760,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             deltavcrest = qs_crest # how much sand is deposited on the crest
             
             # calculate the substrate under the crest
-            vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
+            if dune_x['lee_crest'] < substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]: # if detached pad the crest to the dike
+                vcrestnew = partial_volume(dune_x, dune_z, substrate_x, substrate_z, substrate_x[2], dune_x['seaward_crest']) + deltavcrest # new volume of the crest after accretion
+            else:
+                vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
             
             # check if needed to use temp of lee_crest due to detached lee_side
             
@@ -2232,7 +2235,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         dune_z['back_ref'] = substrate_z[0]
                                  
                 # Check the need to start a new lee portion behind the dike structure
-                if (dune_x['lee_foot'] <= substrate_x[1] and dune_z['lee_foot'] == substrate_z[1]) and dune_z['lee_crest']<=substrate_z[2]:
+                # Only applies when lee_crest is already on the dike back slope (>= dike landward foot);
+                # if the dune is fully detached (lee_crest.x < substrate_x[1]) the v_bottom formula
+                # would use a negative dx and produce a spurious large target volume, so skip it.
+                if (dune_x['lee_foot'] <= substrate_x[1] and dune_z['lee_foot'] == substrate_z[1]) and dune_z['lee_crest']<=substrate_z[2] and dune_x['lee_crest'] >= substrate_x[1]:
                     
                     # check if the volume input exceed the needed to reconnect the lee side
                     x_leefoot_max = substrate_x[2] - (substrate_z[2]-substrate_z[1])/betal
@@ -2311,12 +2317,15 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     
                     # solve for ylprim_potential that gives the target volume
                     ylprim_new_l = brentq(f_lee, dune_x['lee_crest'] - 200, dune_x['lee_crest']) # find the new lee height using the root finder
-                    yl_flat = ylprim_new_l - (dune_z['seaward_crest']-dune_z['lee_foot']) / betal # get the new lee foot position assuming no hard structure
+                    # when the lee is detached (flat surface behind dike), use the actual lee crest
+                    # height instead of seaward_crest height to avoid a wrong yl_flat and lee_line
+                    lee_height = dune_z['lee_crest'] if detach_tag == 1 else dune_z['seaward_crest']
+                    yl_flat = ylprim_new_l - (lee_height - dune_z['lee_foot']) / betal # get the new lee foot position assuming no hard structure
                     
                     # use shapely to find intersection between new lee line and potential hard structure
                     substrate_line = LineString(zip(substrate_x, substrate_z))
                     # lee line: from lee crest (ylprim, s_new) to theoretical flat toe (yl_flat, dfoot)
-                    lee_line = LineString([(ylprim_new_l, dune_z['seaward_crest']), (yl_flat, dune_z['lee_foot'])])
+                    lee_line = LineString([(ylprim_new_l, lee_height), (yl_flat, dune_z['lee_foot'])])
                     
                     # find intersection(s)
                     intersection = substrate_line.intersection(lee_line)
@@ -2342,9 +2351,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['lee_foot'] = yl_new_l
                     dune_z['lee_foot'] = z_int_l
                     dune_x['lee_crest'] = ylprim_new_l
-                    dune_z['lee_crest'] = s_new_c + dfoot
-                    dune_x['crest_temp'] = ylprim_new_l
-                    dune_z['crest_temp'] = s_new_c + dfoot
+                    if detach_tag == 0: # only snap z-heights to crest level when the lee is connected
+                        dune_z['lee_crest'] = s_new_c + dfoot
+                        dune_x['crest_temp'] = ylprim_new_l
+                        dune_z['crest_temp'] = s_new_c + dfoot
                     
                     if dune_x['back_ref'] > dune_x['lee_foot']:
                         dune_x['back_ref'] = yl_new_l
