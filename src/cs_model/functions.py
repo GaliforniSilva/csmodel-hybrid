@@ -78,6 +78,16 @@ def load_timeseries(
     return np.full(length, source)
 
 
+def trapezoid_compat(y, x):
+    """
+    Compute trapezoid integral with NumPy 1.x and 2.x compatibility.
+    (np.trapz was renamed to np.trapezoid in NumPy 2.0)
+    """
+    try:
+        return np.trapezoid(y, x)
+    except AttributeError:
+        return np.trapz(y, x)
+
 def trapezoid_positive(y, x):
     """
     Integrate using trapezoid, counting only positive values.
@@ -1597,13 +1607,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential, sramp_potential, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                V = trapezoid_compat(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
                             # solve for sramp_potential that gives the target volume
                             sramp_new_r = brentq(f_ramp_dike_top, 0, dune_z['seaward_crest']-dune_z['ramp_crest']) + dune_z['ramp_crest'] # find the new ramp height using the root finder padding only the top of the dike
-                            dune_x['ramp_dike_temp'] = ysprim + (((dune_z['seaward_crest'])-sramp_new_r)/betas) #pad the previous so that it only updates when fully filled
                             dune_x['ramp_crest'] = dune_x['ramp_crest'] - ((sramp_new_r-dune_z['ramp_crest'])/betas) #foot based on the dike because it only moves once everything is filled
                             dune_z['ramp_crest'] = sramp_new_r
                             #dune_x['ramp_toe'] = dune_x['ramp_crest']+(sramp_new_r/betas)
@@ -1657,7 +1666,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential - s_hs, sramp_potential - s_hs, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                V = trapezoid_compat(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
@@ -1823,7 +1832,19 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 # check detached lee side
             
                 if dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] <= substrate_z[2]:
-                    s_new_c = brentq(f_crest_triangular_detach, s_hs, s_max_triangular+s)  # adjust 10 if necessary
+                    # Guard: only call brentq when the bounds [s_hs, s_max_triangular+s]
+                    # bracket a root. This can fail when vcrestnew > vcrest_triangular or
+                    # when s_max_triangular+s <= s_hs (degenerate geometry).
+                    if s_max_triangular + s > s_hs:
+                        fa = f_crest_triangular_detach(s_hs)
+                        fb = f_crest_triangular_detach(s_max_triangular + s)
+                        if fa * fb < 0:
+                            s_new_c = brentq(f_crest_triangular_detach, s_hs, s_max_triangular+s)  # adjust 10 if necessary
+                        else:
+                            # vcrestnew exceeds the triangular capacity - cap at maximum
+                            s_new_c = s_max_triangular + s
+                    else:
+                        s_new_c = max(s, s_hs)  # degenerate: use dike height or current
                 
                     # Calculate corresponding pivot points
                     ysprim_new_c = dune_x['seaward_crest'] - (s_new_c - s) / betas
@@ -2334,7 +2355,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['crest_temp'] = ylprim_new_l
                     dune_z['crest_temp'] = s_new_c + dfoot
                     
-                    if dune_x['back_ref'] > dune_x['lee_foot']:
+                    if dune_x['back_ref'] > dune_x['lee_foot'] or dune_z['lee_foot'] > dune_z['back_ref']:
                         dune_x['back_ref'] = yl_new_l
                         dune_z['back_ref'] = z_int_l
 
