@@ -1125,8 +1125,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 erod_ramp = 0 #reduce ramp erosion to 0 and allow only overwash volume   
             
             if erod_ramp > 0: #if there is potential erosion on the dune ramp
+            
             # calculate maximum erosion volume on the ramp based on the dike limit
-                volume_max_ero = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe']) #whole dune is game
+                if dune_x['seaward_crest'] <= substrate_x[3] and dune_z['seaward_crest'] - dfoot > s_hs: #scarp over the dike, hence the lee portion is limited for erosion                 
+                    volume_max_ero = partial_volume(dune_x, dune_z, substrate_x, np.asarray(substrate_z, dtype=float) - np.asarray(substrate_z, dtype=float) + substrate_z[2], dune_x['lee_foot'], dune_x['ramp_toe']) #lee dune is sheltered, so only calculate the volume above the substrate as available               
+                else: #whole dune is game
+                    volume_max_ero = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe']) #whole dune is game
                 
                 if erod_ramp >= volume_max_ero:
                     erod_ramp = volume_max_ero #pad it to the max erosion volume on the ramp
@@ -1208,6 +1212,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
         vdune_test_before_overwash = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
         
+        # make overwash 0 if there is only dune on the back of the dike and the height is smaller than half the dike height
+        if dune_x['seaward_crest'] < substrate_x[2] and dune_z['seaward_crest'] < substrate_z[1] + (substrate_z[2]-substrate_z[1])/2:
+            erod_overwash = 0
+            
         if erod_overwash > 0: # if some of this erosion is due to overwash, move this volume to the lee portion --> No change in total dune volume, only reorganization within the dune
             # check available crest volume to be transported to the lee side
             if dune_x['seaward_crest'] <= ylprim_hs:
@@ -1244,8 +1252,20 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             
             q_to_lee = 0.
                             
-            s_new_ero = dune_z['seaward_crest'] - brentq(f_crest_erosion, 0, dune_z['seaward_crest'] - dfoot)
-        
+            #s_new_ero = dune_z['seaward_crest'] - brentq(f_crest_erosion, 0, dune_z['seaward_crest'] - dfoot)
+            
+            # check if there is enough dune height based on the available sediment
+            if dune_z['seaward_crest'] > substrate_z[2]:
+                available_crest_height = dune_z['seaward_crest'] - dfoot
+
+                if available_crest_height > 0 and f_crest_erosion(available_crest_height) > 0:
+                    s_new_ero = dune_z['seaward_crest'] - brentq(f_crest_erosion, 0, available_crest_height)
+                else:
+                    # Overwash demand exceeds available crest volume; erode crest to dike crest level
+                    s_new_ero = s_hs + dfoot
+            else:
+                s_new_ero = dune_z['seaward_crest'] - brentq(f_crest_erosion, 0, dune_z['seaward_crest'] )
+                
             #check if there is a dike and, if so, limit the erosion until the top of the dike
             if s_hs <= dune_z['seaward_crest'] - dfoot and ((ysprim_hs < dune_x['seaward_crest'] and ysprim_hs > dune_x['lee_crest']) or (ylprim_hs < dune_x['seaward_crest'] and ylprim_hs > dune_x['lee_crest'])) and s_new_ero - dfoot <= s_hs:
                 if dune_z['seaward_crest'] - dfoot == s_hs:
@@ -1412,7 +1432,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             # check if ramp is in front of the dike or not:
             if (dune_x['ramp_crest'] > dune_x['seaward_crest']) or (dune_x['seaward_crest'] == dune_x['ramp_crest'] and dune_x['seaward_crest'] < ys_hs):  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
                 
-                if dune_z['seaward_crest'] <= s_hs + dfoot: # there is no active dune on top of the dike, and everything is exposed
+                if dune_z['seaward_crest'] <= s_hs + dfoot or dune_x['ramp_toe'] <= ys_hs: # there is no active dune on top of the dike, OR ramp toe has retreated to/behind the dike seaward toe (post-erosion scarp: ramp_crest==seaward_crest, dike face exposed, recovery needed): # there is no active dune on top of the dike, and everything is exposed
                     vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
                     x_rampfoot_max = substrate_x[3] + (s_hs)/betas
                     
@@ -1436,13 +1456,17 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                            #check if there is ramp on top of the dune or not
                            v_temp = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['seaward_crest'], substrate_x[4])
                            
-                           if v_temp > 0: #means there is a ramp on top, not scarp
+                           
+                           if v_temp > 0 and dune_z['seaward_crest'] > substrate_z[2]: #means there is a ramp on top, not scarp
                                dune_x['ramp_dike_temp'] = dune_x['seaward_crest'] + ((dune_z['seaward_crest'] - substrate_z[3])/betas)
                                dune_z['ramp_dike_temp'] = s_hs + dfoot
+                           elif dune_x['ramp_toe_temp'] == substrate_x[3] and dune_x['ramp_crest'] == substrate_x[2]: #condition where there is only dune in the back of the dike due to overwash
+                               dune_z['ramp_toe_temp'] = sramp_new_r+dfoot
                            else: #assume a scarp
                                dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
                                dune_z['ramp_dike_temp'] = s_hs + dfoot
        
+
                            dune_x['ramp_toe'] = ys_new_r
                            dune_x['ramp_toe_temp'] = ys_new_r
                            dune_z['ramp_crest'] = sramp_new_r+dfoot
