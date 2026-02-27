@@ -1772,7 +1772,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             deltavcrest = qs_crest # how much sand is deposited on the crest
             
             # calculate the substrate under the crest
-            vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
+            if dune_x['lee_crest'] < substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]:# if detached pad the crest to the dike
+                vcrestnew = partial_volume(dune_x,dune_z,substrate_x,substrate_z,substrate_x[2],dune_x['seaward_crest']) + deltavcrest # new volume of the crest after accretion
+            else:
+                vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
             
             # check if needed to use temp of lee_crest due to detached lee_side
             
@@ -1852,6 +1855,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     # Calculate corresponding pivot points
                     ysprim_new_c = dune_x['seaward_crest'] - (s_new_c - s) / betas
                     ylprim_new_c = dune_x['crest_temp'] + (s_new_c - s) / betal
+                    #ylprim_new_c = substrate_x[2] + (s_new_c - s) / betal
                     yl_new_c = dune_x['lee_foot']
                     z_int_c = dune_z['lee_foot']
                     ys_new_c = dune_x['ramp_toe']
