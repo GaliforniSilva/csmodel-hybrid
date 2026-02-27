@@ -99,7 +99,101 @@ def load_config(config_path):
     return cfg
 
 
-def run_model(config_path, check_mass_conservation=False):
+def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
+                           substrate_x, substrate_z, output_base, timestep,
+                           progress_pct):
+    """
+    Save a snapshot plot of the current cross-shore profile vs the initial profile.
+
+    Parameters
+    ----------
+    dune_x_init : dict
+        Cross-shore positions of dune pivots at the start of the simulation.
+    dune_z_init : dict
+        Elevations of dune pivots at the start of the simulation.
+    dune_x_curr : dict
+        Cross-shore positions of dune pivots at the current timestep.
+    dune_z_curr : dict
+        Elevations of dune pivots at the current timestep.
+    substrate_x : list
+        Cross-shore positions of the non-erodible substrate.
+    substrate_z : list
+        Elevations of the non-erodible substrate.
+    output_base : str
+        Base path for output files (without extension).
+    timestep : int
+        Current simulation timestep index (used in the filename).
+    progress_pct : float
+        Current simulation progress in percent (used in labels).
+    """
+    c_init  = "#1f77b4"   # blue
+    c_final = "#d62728"   # red
+    c_sub   = "0.3"       # grey
+    c_fill_pos = "#2ca02c"  # green (deposition)
+    c_fill_neg = "#ff7f0e"  # orange (erosion)
+
+    x_init = np.array(list(dune_x_init.values()))
+    z_init = np.array(list(dune_z_init.values()))
+
+    x_curr = np.array(list(dune_x_curr.values()))
+    z_curr = np.array(list(dune_z_curr.values()))
+
+    order_i = np.argsort(x_init)
+    order_c = np.argsort(x_curr)
+
+    x_init, z_init = x_init[order_i], z_init[order_i]
+    x_curr, z_curr = x_curr[order_c], z_curr[order_c]
+
+    xg_start = max(x_init[1:].min(), x_curr[1:].min())
+    xg_end   = min(x_init[1:].max(), x_curr[1:].max())
+    if xg_start >= xg_end:
+        # Profiles do not overlap – skip this snapshot
+        print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles do not overlap).")
+        return
+
+    xg = np.linspace(xg_start, xg_end, 500)
+
+    z_init_g = np.interp(xg, x_init, z_init)
+    z_curr_g = np.interp(xg, x_curr, z_curr)
+
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+
+    ax.fill_between(xg, z_init_g, z_curr_g,
+                    where=(z_curr_g > z_init_g),
+                    color=c_fill_pos,
+                    interpolate=True, alpha=0.35, label="Deposition")
+
+    ax.fill_between(xg, z_init_g, z_curr_g,
+                    where=(z_curr_g < z_init_g),
+                    color=c_fill_neg,
+                    interpolate=True, alpha=0.35, label="Erosion")
+
+    ax.plot(x_init[1:], z_init[1:], color=c_init, lw=2.8, label="Initial profile")
+    ax.plot(x_curr[1:], z_curr[1:], color=c_final, lw=2.8,
+            label=f"Profile at {progress_pct:.0f}%")
+    # Plot only the seaward section of the substrate (same convention as example scripts)
+    ax.plot(substrate_x[0:5], substrate_z[0:5],
+            linestyle="--", color=c_sub, lw=2.0, label="Non-erodible substrate")
+
+    ax.set_xlabel("Cross-shore distance (m)", fontsize=15)
+    ax.set_ylabel("Elevation (m)", fontsize=15)
+    ax.set_title(f"Cross-shore profile evolution – {progress_pct:.0f}% of simulation",
+                 fontsize=14)
+    ax.tick_params(labelsize=13)
+    ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
+    ax.legend(loc="lower right", fontsize=11, frameon=True)
+
+    fig.tight_layout()
+
+    plot_filename = f"{output_base}_{timestep}.png"
+    fig.savefig(plot_filename, dpi=150)
+    plt.close(fig)
+
+    print(f"Profile snapshot saved to {plot_filename}")
+
+
+def run_model(config_path, check_mass_conservation=False,
+              plot_evolution=False, plot_evolution_interval=5.0):
     """
     Run the CS model using a YAML configuration file.
 
@@ -110,6 +204,16 @@ def run_model(config_path, check_mass_conservation=False):
     check_mass_conservation : bool, optional
         If True, perform mass conservation check after simulation and print report.
         Default is False.
+    plot_evolution : bool, optional
+        If True, save cross-shore profile evolution snapshots at regular intervals
+        during the simulation.  Each snapshot shows the current profile against the
+        initial profile (with deposition/erosion shading) and is saved as
+        ``<output_base>_<timestep>.png`` in the same directory as the output file.
+        Default is False.
+    plot_evolution_interval : float, optional
+        Interval between snapshots expressed as a percentage of the total simulation
+        length (e.g. 5.0 means a snapshot every 5 %).  Only used when
+        ``plot_evolution=True``.  Default is 5.0.
 
     Returns
     -------
@@ -320,6 +424,14 @@ def run_model(config_path, check_mass_conservation=False):
     
     # Store reference to previous volumes for conservation tracking
     prev_volumes = initial_volumes.copy()
+
+    # Set up evolution plotting (resolve output base early so snapshots can be saved
+    # incrementally during the loop)
+    output_filename = config.get('output', {}).get('filename', 'cs_model_results.pkl')
+    if plot_evolution:
+        _plot_output_base = os.path.splitext(output_filename)[0]
+        _plot_next_pct = float(plot_evolution_interval)
+        _total_steps = len(wave_time_series)
 
     ############################################################################
     # START SIMULATION
@@ -627,11 +739,22 @@ def run_model(config_path, check_mass_conservation=False):
         if i % 1000 == 0:
             print(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
 
+        ## save profile evolution snapshot (if requested)
+        if plot_evolution:
+            current_pct = 100.0 * (i + 1) / _total_steps
+            if current_pct >= _plot_next_pct:
+                _save_profile_snapshot(
+                    results['dune_x'][0], results['dune_z'][0],
+                    dune_x, dune_z,
+                    substrate_x, substrate_z,
+                    _plot_output_base, i + 1, current_pct
+                )
+                _plot_next_pct += float(plot_evolution_interval)
+
     ############################################################################
     # SAVE RESULTS
     ############################################################################
 
-    output_filename = config.get('output', {}).get('filename', 'cs_model_results.pkl')
     with open(output_filename, 'wb') as f:
         pickle.dump(results, f)
 
