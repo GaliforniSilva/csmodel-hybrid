@@ -1314,7 +1314,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 if dune_x['seaward_crest'] < ylprim_hs: # if the dune crest is behind the dike crest, keep ramp_dike_temp consistent with the new crest height
                     dune_z['ramp_dike_temp'] = s_new_ero
                     dune_x['ramp_dike_temp'] = np.interp(s_new_ero, substrate_z[1:3], substrate_x[1:3])
-                    dune_x['ramp_dike_temp'] = ysprim_new_c
+                    #dune_x['ramp_dike_temp'] = ysprim_new_c
 
                 dune_x['seaward_crest'] = ysprim_new_c
                 dune_x['lee_crest'] = ylprim_new_c
@@ -1469,6 +1469,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                dune_z['ramp_toe_temp'] = sramp_new_r+dfoot
                            else: #assume a scarp
                                dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
+                               dune_x['ramp_dike_temp'] = substrate_x[2]
                                dune_z['ramp_dike_temp'] = s_hs + dfoot
        
 
@@ -1558,6 +1559,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                dune_z['ramp_dike_temp'] = s_hs + dfoot
                            else: #assume a scarp
                                dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
+                               dune_x['ramp_dike_temp'] = substrate_x[2]
                                dune_z['ramp_dike_temp'] = s_hs + dfoot
        
                            dune_x['ramp_toe'] = ys_new_r
@@ -1663,8 +1665,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                                             
                             def f_ramp_dike_lowerramp(sramp_potential):
                                 # toe position consistent with slope
-                                yspotential = dune_x['ramp_toe'] + ((sramp_potential) / betas)
-                                ysprim_potential = yspotential - (sramp_potential/betas)
+                                #yspotential = dune_x['ramp_toe'] + ((sramp_potential) / betas)
+                                #ysprim_potential = yspotential - (sramp_potential/betas)
+                                
+                                # toe position consistent with slope (ramp builds against dike face, anchored at ys_hs)
+                                ysprim_potential = ys_hs - (sramp_potential / betas_hs)
+                                yspotential = ysprim_potential + (sramp_potential / betas)
                                 
                                 # ramp line
                                 dune_x_line = np.array([ysprim_potential, yspotential])
@@ -1682,13 +1688,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                                                 
                             # find if there is a small ramp already growing or not
                             sramp_new_r = brentq(f_ramp_dike_lowerramp, 0, upper_scarp_z) # find the new ramp height using the root finder
-                            ys_new_r = dune_x['ramp_toe'] + ((sramp_new_r)/betas) - ((sramp_new_r)/betas_hs)
+                            ys_new_r = ys_hs + ((sramp_new_r)/betas) - ((sramp_new_r)/betas_hs)
                             
                             dune_x['ramp_crest'] = ys_new_r - (sramp_new_r/betas)
                             dune_z['ramp_crest'] = sramp_new_r + dfoot
                             dune_x['ramp_toe'] = ys_new_r
                             dune_x['ramp_toe_temp'] = ys_new_r
-                            dune_z['ramp_toe_temp'] = sramp_new_r + dfoot
+                            dune_z['ramp_toe_temp'] = dfoot
                             dune_z['ramp_dike_temp'] = upper_scarp_z
                             
                         else:

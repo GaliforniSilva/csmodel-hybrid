@@ -496,7 +496,7 @@ def run_model(config_path, check_mass_conservation=False):
 
         ######## AEOLIAN DEPOSITION AT DUNE ########
 
-        if i>=8630:
+        if i>=51011:
             print(i)
             
         qs_ramp, qs_crest, qs_lee = deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, p.dt, tetaw, wspeed, p.rhos, p.rhoa, p.d50, p.kappa, p.z, p.vegcount, p.awind, rhov_df=rhov_df, rhov_dt=rhov_dt, rhov_db=rhov_db, 
