@@ -1829,7 +1829,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             
             # calculate the substrate under the crest
             if dune_x['lee_crest'] < substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]:# if detached pad the crest to the dike
-                vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
+                vcrestnew = partial_volume(dune_x,dune_z,substrate_x,substrate_z,substrate_x[2],dune_x['seaward_crest']) + deltavcrest # new volume of the crest after accretion
             else:
                 vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
             
@@ -1903,33 +1903,43 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     else:
                         return V - vcrestnew
                     
+                # Full dune volume at current state, used for mass-conservative flat-crest update.
+                # Captured in closure so f_crest_triangular_detach_flatcrest can compute
+                # the change relative to the current full profile (same measure as calc_dune_vol).
+                _dune_keys_order = ['back_ref', 'lee_foot', 'lee_crest', 'crest_temp',
+                                    'seaward_crest', 'ramp_dike_temp', 'ramp_crest',
+                                    'ramp_toe_temp', 'ramp_toe', 'shoreline']
+                vdune_current_flatcrest = total_volume(
+                    [dune_x[k] for k in _dune_keys_order if dune_x.get(k) is not None],
+                    [dune_z[k] for k in _dune_keys_order if dune_z.get(k) is not None],
+                    substrate_x, substrate_z
+                )
+                # Current partial volume in the dike-face region [substrate_x[2], seaward_crest].
+                # vcrestnew = pv_flatcrest + qs_crest (+ qs_lee added later).
+                # Subtracting pv_flatcrest from the brentq target makes the actual
+                # calc_dune_vol change equal exactly qs_crest + qs_lee (no spurious drift).
+                pv_flatcrest = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                                              substrate_x[2], dune_x['seaward_crest'])
+
                 def f_crest_triangular_detach_flatcrest(s_potential):
-        
-                    ystemp = dune_x['crest_temp'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block
-                    #yltemp = dune_x['crest_temp']
-                    yltemp = dune_x['lee_crest'] # fixed at dike position
-        
-                    ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
-                    ylprim_potential = yltemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
-            
-                    # linear crest line: from (ylprim_potential, s_potential) to (ysprim_potential, s_potential)
-                    dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
-                    dune_z_crest = np.array([0, s_potential-dune_z['crest_temp'], s_potential-dune_z['crest_temp'], 0])+substrate_z[1]
-            
-                    n_per_segment = 100  # how many points per segment
-                    x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
-                    z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
-            
-                    # substrate under crest
-                    z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
-            
-                    # volume between crest line and substrate
-                    V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
-            
-                    #if s_potential == s:
-                    #    return -vcrestnew
-                    #else:
-                    return V - vcrestnew
+                    # Proposed pivot positions when flat crest rises to s_potential.
+                    ylprim_potential = dune_x['lee_crest'] + (s_potential - dune_z['crest_temp']) / betal
+                    ysprim_potential = dune_x['crest_temp'] + (s_potential - dune_z['crest_temp']) / betal_hs
+
+                    # Build the full proposed profile (only lee_crest and crest_temp change).
+                    # This matches exactly what calc_dune_vol measures after the update.
+                    xl = [ylprim_potential if k == 'lee_crest' else
+                          (ysprim_potential if k == 'crest_temp' else dune_x[k])
+                          for k in _dune_keys_order if dune_x.get(k) is not None]
+                    zl = [s_potential if k == 'lee_crest' else
+                          (s_potential if k == 'crest_temp' else dune_z[k])
+                          for k in _dune_keys_order if dune_x.get(k) is not None]
+
+                    V = total_volume(xl, zl, substrate_x, substrate_z)
+                    # vcrestnew = pv_flatcrest + qs_crest (+ qs_lee added at call time).
+                    # Subtracting pv_flatcrest makes the target equal to qs_crest + qs_lee,
+                    # so the actual calc_dune_vol change equals the aeolian flux exactly.
+                    return V - vdune_current_flatcrest - vcrestnew + pv_flatcrest
                 
                 # check detached lee side
                 if dune_x['crest_temp'] > dune_x['lee_crest'] and dune_z['crest_temp'] == dune_z['lee_crest'] and dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] < dune_z['seaward_crest']: #substrate_z[2]: #detached with flat crest behind
