@@ -1829,7 +1829,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             
             # calculate the substrate under the crest
             if dune_x['lee_crest'] < substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]:# if detached pad the crest to the dike
-                vcrestnew = partial_volume(dune_x,dune_z,substrate_x,substrate_z,substrate_x[2],dune_x['seaward_crest']) + deltavcrest # new volume of the crest after accretion
+                vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
             else:
                 vcrestnew = total_volume_crest_ramp + deltavcrest # new volume of the crest after accretion
             
