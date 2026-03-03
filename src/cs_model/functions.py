@@ -1400,7 +1400,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
         vdune_test_after_overwash = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
         
-        #print('Delta Volume Overwash = ', vdune_test_after_overwash - vdune_test_before_overwash)
+        print('Delta Volume Overwash = ', vdune_test_after_overwash - vdune_test_before_overwash)
     # case 2: dune accretion
     
     else:
@@ -1469,7 +1469,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                dune_z['ramp_toe_temp'] = sramp_new_r+dfoot
                            else: #assume a scarp
                                dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
-                               dune_z['ramp_dike_temp'] = s_hs + dfoot
+                               dune_z['ramp_dike_temp'] = dune_z['seaward_crest']
        
 
                            dune_x['ramp_toe'] = ys_new_r
