@@ -99,7 +99,200 @@ def load_config(config_path):
     return cfg
 
 
-def run_model(config_path, check_mass_conservation=False):
+def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
+                           substrate_x, substrate_z, output_base, timestep,
+                           progress_pct, bc_info=None):
+    """
+    Save a snapshot plot of the current cross-shore profile vs the initial profile.
+
+    Parameters
+    ----------
+    dune_x_init : dict
+        Cross-shore positions of dune pivots at the start of the simulation.
+    dune_z_init : dict
+        Elevations of dune pivots at the start of the simulation.
+    dune_x_curr : dict
+        Cross-shore positions of dune pivots at the current timestep.
+    dune_z_curr : dict
+        Elevations of dune pivots at the current timestep.
+    substrate_x : list
+        Cross-shore positions of the non-erodible substrate.
+    substrate_z : list
+        Elevations of the non-erodible substrate.
+    output_base : str
+        Base path for output files (without extension).
+    timestep : int
+        Completed timestep count (1-based; used directly in the filename so
+        filenames are human-readable, e.g. ``output_5000.png``).
+    progress_pct : float
+        Current simulation progress in percent (used in labels).
+    bc_info : dict, optional
+        Boundary condition values to annotate on the plot.  Expected keys
+        (all optional): ``swl`` (m), ``wave_height`` (Hs, m),
+        ``wave_period`` (Tp, s), ``runup`` (m), ``total_water_level`` (m).
+        When ``swl`` is present a water-level line is drawn on the seaward
+        side of the profile.
+
+    Returns
+    -------
+    plot_filename : str or None
+        Path of the saved PNG file, or ``None`` if the snapshot was skipped.
+    """
+    c_init  = "#1f77b4"   # blue
+    c_final = "#d62728"   # red
+    c_sub   = "0.3"       # grey
+    c_fill_pos = "#2ca02c"  # green (deposition)
+    c_fill_neg = "#ff7f0e"  # orange (erosion)
+    c_swl   = "#00aadd"   # cyan-blue (SWL)
+    c_twl   = "#aa00dd"   # purple (TWL)
+
+    x_init = np.array(list(dune_x_init.values()))
+    z_init = np.array(list(dune_z_init.values()))
+
+    x_curr = np.array(list(dune_x_curr.values()))
+    z_curr = np.array(list(dune_z_curr.values()))
+
+    order_i = np.argsort(x_init)
+    order_c = np.argsort(x_curr)
+
+    x_init, z_init = x_init[order_i], z_init[order_i]
+    x_curr, z_curr = x_curr[order_c], z_curr[order_c]
+
+    xg_start = max(x_init[1:].min(), x_curr[1:].min())
+    xg_end   = min(x_init[1:].max(), x_curr[1:].max())
+    if x_init[1:].size == 0 or x_curr[1:].size == 0 or xg_start >= xg_end:
+        # Profiles do not overlap – skip this snapshot
+        print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles do not overlap).")
+        return None
+
+    xg = np.linspace(xg_start, xg_end, 500)
+
+    z_init_g = np.interp(xg, x_init, z_init)
+    z_curr_g = np.interp(xg, x_curr, z_curr)
+
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+
+    ax.fill_between(xg, z_init_g, z_curr_g,
+                    where=(z_curr_g > z_init_g),
+                    color=c_fill_pos,
+                    interpolate=True, alpha=0.35, label="Deposition")
+
+    ax.fill_between(xg, z_init_g, z_curr_g,
+                    where=(z_curr_g < z_init_g),
+                    color=c_fill_neg,
+                    interpolate=True, alpha=0.35, label="Erosion")
+
+    ax.plot(x_init[1:], z_init[1:], color=c_init, lw=2.8, label="Initial profile")
+    ax.plot(x_curr[1:], z_curr[1:], color=c_final, lw=2.8,
+            label=f"Profile at {progress_pct:.0f}%")
+    # Plot only the seaward section of the substrate (same convention as example scripts)
+    ax.plot(substrate_x[0:5], substrate_z[0:5],
+            linestyle="--", color=c_sub, lw=2.0, label="Non-erodible substrate")
+
+    # ---- Boundary conditions ----
+    if bc_info is not None:
+        swl = bc_info.get('swl')
+        twl = bc_info.get('total_water_level')
+        hs  = bc_info.get('wave_height')
+        tp  = bc_info.get('wave_period')
+        r   = bc_info.get('runup')
+
+        # SWL and TWL horizontal lines on the seaward (right) side of the profile
+        x_ramp_toe  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
+        x_shoreline = dune_x_curr.get('shoreline', x_curr[1:].max())
+        x_sea_end   = x_shoreline + 0.1 * (x_shoreline - x_ramp_toe)
+
+        if swl is not None:
+            ax.plot([x_ramp_toe, x_sea_end], [swl, swl],
+                    color=c_swl, lw=2.0, linestyle='-.',
+                    label=f"SWL = {swl:.2f} m")
+
+        if twl is not None:
+            ax.plot([x_ramp_toe, x_sea_end], [twl, twl],
+                    color=c_twl, lw=1.8, linestyle=':',
+                    label=f"TWL = {twl:.2f} m")
+
+        # BC annotation box (upper-right)
+        bc_lines = []
+        if hs  is not None: bc_lines.append(f"Hs  = {hs:.2f} m")
+        if tp  is not None: bc_lines.append(f"Tp  = {tp:.1f} s")
+        if swl is not None: bc_lines.append(f"SWL = {swl:.2f} m")
+        if r   is not None: bc_lines.append(f"R   = {r:.2f} m")
+        if twl is not None: bc_lines.append(f"TWL = {twl:.2f} m")
+
+        if bc_lines:
+            ax.text(0.98, 0.97, "\n".join(bc_lines),
+                    transform=ax.transAxes,
+                    fontsize=10.5,
+                    verticalalignment='top',
+                    horizontalalignment='right',
+                    bbox=dict(boxstyle="round,pad=0.4",
+                              facecolor="white",
+                              edgecolor="0.4",
+                              alpha=0.92))
+
+    ax.set_xlabel("Cross-shore distance (m)", fontsize=15)
+    ax.set_ylabel("Elevation (m)", fontsize=15)
+    ax.set_title(f"Cross-shore profile evolution – {progress_pct:.0f}% of simulation",
+                 fontsize=14)
+    ax.tick_params(labelsize=13)
+    ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
+    ax.legend(loc="lower right", fontsize=11, frameon=True)
+
+    fig.tight_layout()
+
+    plot_filename = f"{output_base}_{timestep}.png"
+    fig.savefig(plot_filename, dpi=150)
+    plt.close(fig)
+
+    print(f"Profile snapshot saved to {plot_filename}")
+    return plot_filename
+
+
+def _create_evolution_movie(frame_paths, output_path, fps=2):
+    """
+    Create an animated GIF from a list of snapshot PNG files.
+
+    Parameters
+    ----------
+    frame_paths : list of str
+        Ordered list of PNG file paths to stitch into the animation.
+    output_path : str
+        Destination path for the GIF file.
+    fps : int, optional
+        Frames per second (default 2).
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        print("Warning: Pillow is not installed – cannot create evolution movie. "
+              "Install it with: pip install Pillow")
+        return
+
+    images = []
+    for path in frame_paths:
+        if os.path.isfile(path):
+            with Image.open(path) as img:
+                images.append(img.copy())
+
+    if not images:
+        print("Warning: no snapshot frames found; evolution movie not created.")
+        return
+
+    duration_ms = int(1000 / fps)
+    images[0].save(
+        output_path,
+        save_all=True,
+        append_images=images[1:],
+        duration=duration_ms,
+        loop=0
+    )
+    print(f"Evolution movie saved to {output_path}")
+
+
+def run_model(config_path, check_mass_conservation=False,
+              plot_evolution=False, plot_evolution_interval=5.0,
+              save_evolution_movie=False):
     """
     Run the CS model using a YAML configuration file.
 
@@ -110,6 +303,21 @@ def run_model(config_path, check_mass_conservation=False):
     check_mass_conservation : bool, optional
         If True, perform mass conservation check after simulation and print report.
         Default is False.
+    plot_evolution : bool, optional
+        If True, save cross-shore profile evolution snapshots at regular intervals
+        during the simulation.  Each snapshot shows the current profile against the
+        initial profile (with deposition/erosion shading) and is saved as
+        ``<output_base>_<timestep>.png`` in the same directory as the output file.
+        Default is False.
+    plot_evolution_interval : float, optional
+        Interval between snapshots expressed as a percentage of the total simulation
+        length (e.g. 5.0 means a snapshot every 5 %).  Only used when
+        ``plot_evolution=True``.  Default is 5.0.
+    save_evolution_movie : bool, optional
+        If True, stitch all saved snapshots into an animated GIF after the
+        simulation ends.  The file is saved as ``<output_base>_evolution.gif``
+        alongside the model output.  Requires ``plot_evolution=True`` and
+        Pillow (``pip install Pillow``).  Default is False.
 
     Returns
     -------
@@ -320,6 +528,15 @@ def run_model(config_path, check_mass_conservation=False):
     
     # Store reference to previous volumes for conservation tracking
     prev_volumes = initial_volumes.copy()
+
+    # Set up evolution plotting (resolve output base early so snapshots can be saved
+    # incrementally during the loop)
+    output_filename = config.get('output', {}).get('filename', 'cs_model_results.pkl')
+    if plot_evolution:
+        _plot_output_base = os.path.splitext(output_filename)[0]
+        _plot_next_pct = float(plot_evolution_interval)
+        _total_steps = len(wave_time_series)
+        _plot_saved_frames = []
 
     ############################################################################
     # START SIMULATION
@@ -630,15 +847,47 @@ def run_model(config_path, check_mass_conservation=False):
         if i % 1000 == 0:
             print(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
 
+        ## save profile evolution snapshot (if requested)
+        if plot_evolution:
+            current_pct = 100.0 * (i + 1) / _total_steps
+            if current_pct >= _plot_next_pct:
+                _bc_info = {
+                    'wave_height': wave_time_series[i],
+                    'wave_period': tp,
+                    'swl': swl,
+                    'runup': r,
+                    'total_water_level': total_water_level,
+                }
+                _frame_path = _save_profile_snapshot(
+                    results['dune_x'][0], results['dune_z'][0],
+                    dune_x, dune_z,
+                    substrate_x, substrate_z,
+                    _plot_output_base, i + 1, current_pct,
+                    bc_info=_bc_info
+                )
+                if _frame_path is not None:
+                    _plot_saved_frames.append(_frame_path)
+                _plot_next_pct += float(plot_evolution_interval)
+
     ############################################################################
     # SAVE RESULTS
     ############################################################################
 
-    output_filename = config.get('output', {}).get('filename', 'cs_model_results.pkl')
     with open(output_filename, 'wb') as f:
         pickle.dump(results, f)
 
     print(f"Simulation completed. Results saved to {output_filename}.")
+
+    ############################################################################
+    # EVOLUTION MOVIE (if requested)
+    ############################################################################
+
+    if save_evolution_movie and not plot_evolution:
+        print("Warning: save_evolution_movie=True has no effect when plot_evolution=False.")
+
+    if plot_evolution and save_evolution_movie and _plot_saved_frames:
+        movie_path = f"{_plot_output_base}_evolution.gif"
+        _create_evolution_movie(_plot_saved_frames, movie_path)
     
     ############################################################################
     # MASS CONSERVATION CHECK (if requested)
