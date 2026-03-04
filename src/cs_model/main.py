@@ -175,19 +175,16 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.fill_between(xg, z_init_g, z_curr_g,
                     where=(z_curr_g > z_init_g),
                     color=c_fill_pos,
-                    interpolate=True, alpha=0.35, label="Deposition")
+                    interpolate=True, alpha=0.35, zorder=1, label="Deposition")
 
     ax.fill_between(xg, z_init_g, z_curr_g,
                     where=(z_curr_g < z_init_g),
                     color=c_fill_neg,
-                    interpolate=True, alpha=0.35, label="Erosion")
+                    interpolate=True, alpha=0.35, zorder=1, label="Erosion")
 
-    ax.plot(x_init[1:], z_init[1:], color=c_init, lw=2.8, label="Initial profile")
-    ax.plot(x_curr[1:], z_curr[1:], color=c_final, lw=2.8,
+    ax.plot(x_init[1:], z_init[1:], color=c_init, lw=2.8, zorder=3, label="Initial profile")
+    ax.plot(x_curr[1:], z_curr[1:], color=c_final, lw=2.8, zorder=3,
             label=f"Profile at {progress_pct:.0f}%")
-    # Plot only the seaward section of the substrate (same convention as example scripts)
-    ax.plot(substrate_x[0:5], substrate_z[0:5],
-            linestyle="--", color=c_sub, lw=2.0, label="Non-erodible substrate")
 
     # ---- Boundary conditions ----
     if bc_info is not None:
@@ -196,29 +193,75 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         hs  = bc_info.get('wave_height')
         tp  = bc_info.get('wave_period')
         r   = bc_info.get('runup')
+        wind_speed  = bc_info.get('wind_speed')
+        wind_dir    = bc_info.get('wind_direction')
 
-        # SWL and TWL horizontal lines on the seaward (right) side of the profile
         x_ramp_toe  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
         x_shoreline = dune_x_curr.get('shoreline', x_curr[1:].max())
         x_sea_end   = x_shoreline + 0.1 * (x_shoreline - x_ramp_toe)
 
+        # Extended profile grid to include the seaward visual margin
+        _xfill = np.concatenate([xg, [x_sea_end]])
+        _zfill = np.concatenate([z_curr_g, [0.0]])
+
+        def _find_touch_x(xarr, zarr, level):
+            """Return the seaward-most x where the profile first rises to *level*."""
+            above = zarr >= level
+            if not np.any(above):
+                return xarr[0]
+            last = int(np.where(above)[0][-1])
+            if last < len(xarr) - 1:
+                xa, xb = xarr[last], xarr[last + 1]
+                za, zb = zarr[last], zarr[last + 1]
+                if abs(zb - za) > 1e-10:
+                    return xa + (level - za) / (zb - za) * (xb - xa)
+            return xarr[last]
+
         if swl is not None:
-            ax.plot([x_ramp_toe, x_sea_end], [swl, swl],
-                    color=c_swl, lw=2.0, linestyle='-.',
-                    label=f"SWL = {swl:.2f} m")
+            # Find where the profile touches SWL (seaward-most point) then fill
+            # only the seaward water body (no fill on the lee side of the dike).
+            _tx_swl = _find_touch_x(_xfill, _zfill, swl)
+            ax.fill_between(_xfill, swl, _zfill,
+                            where=(_zfill <= swl) & (_xfill >= _tx_swl),
+                            color=c_swl, alpha=0.25, interpolate=True,
+                            zorder=1, label=f"SWL = {swl:.2f} m")
+            ax.plot([_tx_swl, x_sea_end], [swl, swl],
+                    color=c_swl, lw=2.0, linestyle='-.', zorder=5)
 
         if twl is not None:
-            ax.plot([x_ramp_toe, x_sea_end], [twl, twl],
-                    color=c_twl, lw=1.8, linestyle=':',
-                    label=f"TWL = {twl:.2f} m")
+            _dune_crest = dune_z_curr.get('seaward_crest')
+            _is_overwash = (_dune_crest is not None and twl >= _dune_crest)
+            if _is_overwash:
+                # Overwash: fill from x=0 all the way seaward
+                _z_back = dune_z_curr.get('back_ref',
+                                          z_curr_g[0] if len(z_curr_g) > 0 else 0.0)
+                _xfill_ow = np.concatenate([[0.0], xg, [x_sea_end]])
+                _zfill_ow = np.concatenate([[_z_back], z_curr_g, [0.0]])
+                ax.fill_between(_xfill_ow, twl, _zfill_ow,
+                                where=(_zfill_ow <= twl),
+                                color=c_twl, alpha=0.20, interpolate=True,
+                                zorder=1, label=f"TWL = {twl:.2f} m (overwash)")
+                ax.plot([0.0, x_sea_end], [twl, twl],
+                        color=c_twl, lw=1.8, linestyle=':', zorder=5)
+            else:
+                # Find touch point then restrict fill to the seaward side only.
+                _tx_twl = _find_touch_x(_xfill, _zfill, twl)
+                ax.fill_between(_xfill, twl, _zfill,
+                                where=(_zfill <= twl) & (_xfill >= _tx_twl),
+                                color=c_twl, alpha=0.20, interpolate=True,
+                                zorder=1, label=f"TWL = {twl:.2f} m")
+                ax.plot([_tx_twl, x_sea_end], [twl, twl],
+                        color=c_twl, lw=1.8, linestyle=':', zorder=5)
 
         # BC annotation box (upper-right)
         bc_lines = []
-        if hs  is not None: bc_lines.append(f"Hs  = {hs:.2f} m")
-        if tp  is not None: bc_lines.append(f"Tp  = {tp:.1f} s")
-        if swl is not None: bc_lines.append(f"SWL = {swl:.2f} m")
-        if r   is not None: bc_lines.append(f"R   = {r:.2f} m")
-        if twl is not None: bc_lines.append(f"TWL = {twl:.2f} m")
+        if hs         is not None: bc_lines.append(f"Hs   = {hs:.2f} m")
+        if tp         is not None: bc_lines.append(f"Tp   = {tp:.1f} s")
+        if wind_speed is not None: bc_lines.append(f"U10  = {wind_speed:.1f} m/s")
+        if wind_dir   is not None: bc_lines.append(f"Wdir = {wind_dir:.0f}\u00b0")
+        if swl        is not None: bc_lines.append(f"SWL  = {swl:.2f} m")
+        if r          is not None: bc_lines.append(f"R    = {r:.2f} m")
+        if twl        is not None: bc_lines.append(f"TWL  = {twl:.2f} m")
 
         if bc_lines:
             ax.text(0.98, 0.97, "\n".join(bc_lines),
@@ -230,6 +273,15 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                               facecolor="white",
                               edgecolor="0.4",
                               alpha=0.92))
+
+    # Fill the substrate body with a solid colour to mask any erosion/deposition
+    # fills or water fills that extend into the non-erodible dike structure.
+    _sub_z_min = min(z_init.min(), z_curr.min(), min(substrate_z)) - 1.0
+    ax.fill_between(substrate_x, substrate_z, _sub_z_min,
+                    facecolor='0.85', linewidth=0, zorder=2)
+    # Redraw the substrate outline on top so it is always visible
+    ax.plot(substrate_x[0:5], substrate_z[0:5],
+            linestyle="--", color=c_sub, lw=2.0, zorder=4, label="Non-erodible substrate")
 
     ax.set_xlabel("Cross-shore distance (m)", fontsize=15)
     ax.set_ylabel("Elevation (m)", fontsize=15)
@@ -537,6 +589,10 @@ def run_model(config_path, check_mass_conservation=False,
         _plot_next_pct = float(plot_evolution_interval)
         _total_steps = len(wave_time_series)
         _plot_saved_frames = []
+        # Erosion-event snapshot tracking
+        _erosion_active = False
+        _erosion_event_steps = 0
+        _erosion_mid_saved = False
 
     ############################################################################
     # START SIMULATION
@@ -850,14 +906,63 @@ def run_model(config_path, check_mass_conservation=False,
         ## save profile evolution snapshot (if requested)
         if plot_evolution:
             current_pct = 100.0 * (i + 1) / _total_steps
+
+            # Build shared bc_info for all snapshot calls this timestep
+            _bc_info = {
+                'wave_height': wave_time_series[i],
+                'wave_period': tp,
+                'swl': swl,
+                'runup': r,
+                'total_water_level': total_water_level,
+                'wind_speed': wind_speed_time_series[i],
+                'wind_direction': wind_dir_time_series[i],
+            }
+
+            # ---- Erosion-event snapshots ----
+            _is_erosive = (deltavramp_ero > 0)
+            if _is_erosive and not _erosion_active:
+                # First timestep of a new erosion event
+                _erosion_active = True
+                _erosion_event_steps = 1
+                _erosion_mid_saved = False
+                _fp = _save_profile_snapshot(
+                    results['dune_x'][0], results['dune_z'][0],
+                    dune_x, dune_z,
+                    substrate_x, substrate_z,
+                    _plot_output_base, i + 1, current_pct,
+                    bc_info=_bc_info
+                )
+                if _fp is not None:
+                    _plot_saved_frames.append(_fp)
+            elif _is_erosive and _erosion_active:
+                _erosion_event_steps += 1
+                if not _erosion_mid_saved and _erosion_event_steps >= 10:
+                    # Mid-event snapshot (after at least 10 erosive steps)
+                    _erosion_mid_saved = True
+                    _fp = _save_profile_snapshot(
+                        results['dune_x'][0], results['dune_z'][0],
+                        dune_x, dune_z,
+                        substrate_x, substrate_z,
+                        _plot_output_base, i + 1, current_pct,
+                        bc_info=_bc_info
+                    )
+                    if _fp is not None:
+                        _plot_saved_frames.append(_fp)
+            elif not _is_erosive and _erosion_active:
+                # Last timestep of the erosion event – save end-of-event snapshot
+                _erosion_active = False
+                _fp = _save_profile_snapshot(
+                    results['dune_x'][0], results['dune_z'][0],
+                    dune_x, dune_z,
+                    substrate_x, substrate_z,
+                    _plot_output_base, i + 1, current_pct,
+                    bc_info=_bc_info
+                )
+                if _fp is not None:
+                    _plot_saved_frames.append(_fp)
+
+            # ---- Regular interval snapshots ----
             if current_pct >= _plot_next_pct:
-                _bc_info = {
-                    'wave_height': wave_time_series[i],
-                    'wave_period': tp,
-                    'swl': swl,
-                    'runup': r,
-                    'total_water_level': total_water_level,
-                }
                 _frame_path = _save_profile_snapshot(
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
