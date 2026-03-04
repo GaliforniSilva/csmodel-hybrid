@@ -276,12 +276,16 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
     # Fill the substrate body with a solid colour to mask any erosion/deposition
     # fills or water fills that extend into the non-erodible dike structure.
+    # Only fill up to the dike seaward toe (substrate_x[4] / substrate_z[4]);
+    # the flat beach seaward of the dike should not be covered.
+    # zorder=5 ensures the fill renders on top of the dune profile lines
+    # (zorder=3) so that any dune geometry crossing inside the dike is hidden.
     _sub_z_min = min(z_init.min(), z_curr.min(), min(substrate_z)) - 1.0
-    ax.fill_between(substrate_x, substrate_z, _sub_z_min,
-                    facecolor='0.85', linewidth=0, zorder=2)
+    ax.fill_between(substrate_x[0:5], substrate_z[0:5], _sub_z_min,
+                    facecolor='0.85', linewidth=0, zorder=5)
     # Redraw the substrate outline on top so it is always visible
     ax.plot(substrate_x[0:5], substrate_z[0:5],
-            linestyle="--", color=c_sub, lw=2.0, zorder=4, label="Non-erodible substrate")
+            linestyle="--", color=c_sub, lw=2.0, zorder=6, label="Non-erodible substrate")
 
     ax.set_xlabel("Cross-shore distance (m)", fontsize=15)
     ax.set_ylabel("Elevation (m)", fontsize=15)
