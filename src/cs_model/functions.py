@@ -1778,8 +1778,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 
                     # solve for sramp_potential that gives the target volume
                     sramp_new_r = brentq(f_ramp, dune_z['ramp_crest']-dfoot, dune_z['seaward_crest']-dfoot) # find the new ramp height using the root finder
-                    ys_new_r = dune_x['ramp_crest'] + (sramp_new_r / betas)
-                    #ys_new_r = ys + ((sramp_new_r-sramp) / betas)
+                    #ys_new_r = dune_x['ramp_crest'] + (sramp_new_r / betas)
+                    ys_new_r = ys + ((sramp_new_r-sramp) / betas)
             
                 else: # if the volume exceeds the maximum, then move the role thing with fixed ramp height and slope, but moving ysprim.
                     sramp_new_r = dune_z['seaward_crest']-dfoot  # ramp full
