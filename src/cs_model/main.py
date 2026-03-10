@@ -152,8 +152,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     x_curr = np.array(list(dune_x_curr.values()))
     z_curr = np.array(list(dune_z_curr.values()))
 
-    order_i = np.argsort(x_init)
-    order_c = np.argsort(x_curr)
+    order_i = np.argsort(x_init, kind='stable')
+    order_c = np.argsort(x_curr, kind='stable')
 
     x_init, z_init = x_init[order_i], z_init[order_i]
     x_curr, z_curr = x_curr[order_c], z_curr[order_c]
