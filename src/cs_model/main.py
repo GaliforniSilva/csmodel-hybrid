@@ -146,29 +146,40 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     c_swl   = "#00aadd"   # cyan-blue (SWL)
     c_twl   = "#aa00dd"   # purple (TWL)
 
+    # Raw dict insertion-order arrays – used for the profile line plots so that
+    # the saved PNG matches plt.plot(list(dune_x.values()), list(dune_z.values())).
+    # The dict key order is always the correct physical landward→seaward ordering
+    # of profile pivots and must never be changed by a sort.
     x_init = np.array(list(dune_x_init.values()))
     z_init = np.array(list(dune_z_init.values()))
 
     x_curr = np.array(list(dune_x_curr.values()))
     z_curr = np.array(list(dune_z_curr.values()))
 
-    order_i = np.argsort(x_init, kind='stable')
-    order_c = np.argsort(x_curr, kind='stable')
+    # Sorted arrays – used only for np.interp, which requires monotonically
+    # increasing x.  Pivots such as 'crest_temp' and 'seaward_crest' can end up
+    # at very close but non-equal x-values (e.g. 183.44 vs 183) after growth,
+    # making the insertion order non-monotonic.  Sorting fixes that for
+    # interpolation without touching the line-plot order above.
+    order_i = np.argsort(x_init, kind='stable')  # 'stable' preserves insertion order for equal-x pivots
+    order_c = np.argsort(x_curr, kind='stable')  # 'stable' preserves insertion order for equal-x pivots
 
-    x_init, z_init = x_init[order_i], z_init[order_i]
-    x_curr, z_curr = x_curr[order_c], z_curr[order_c]
+    x_init_s = x_init[order_i]
+    z_init_s = z_init[order_i]
+    x_curr_s = x_curr[order_c]
+    z_curr_s = z_curr[order_c]
 
-    xg_start = max(x_init[1:].min(), x_curr[1:].min())
-    xg_end   = min(x_init[1:].max(), x_curr[1:].max())
-    if x_init[1:].size == 0 or x_curr[1:].size == 0 or xg_start >= xg_end:
+    xg_start = max(x_init_s[1:].min(), x_curr_s[1:].min())
+    xg_end   = min(x_init_s[1:].max(), x_curr_s[1:].max())
+    if x_init_s[1:].size == 0 or x_curr_s[1:].size == 0 or xg_start >= xg_end:
         # Profiles do not overlap – skip this snapshot
         print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles do not overlap).")
         return None
 
     xg = np.linspace(xg_start, xg_end, 500)
 
-    z_init_g = np.interp(xg, x_init, z_init)
-    z_curr_g = np.interp(xg, x_curr, z_curr)
+    z_init_g = np.interp(xg, x_init_s, z_init_s)
+    z_curr_g = np.interp(xg, x_curr_s, z_curr_s)
 
     fig, ax = plt.subplots(figsize=(10, 4.8))
 
@@ -185,7 +196,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.plot(x_init[1:], z_init[1:], color=c_init, lw=2.8, zorder=3, label="Initial profile")
     ax.plot(x_curr[1:], z_curr[1:], color=c_final, lw=2.8, zorder=3,
             label=f"Profile at {progress_pct:.0f}%")
-
     # ---- Boundary conditions ----
     if bc_info is not None:
         swl = bc_info.get('swl')
