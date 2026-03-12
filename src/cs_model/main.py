@@ -128,10 +128,10 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         Current simulation progress in percent (used in labels).
     bc_info : dict, optional
         Boundary condition values to annotate on the plot.  Expected keys
-        (all optional): ``swl`` (m), ``wave_height`` (Hs, m),
-        ``wave_period`` (Tp, s), ``runup`` (m), ``total_water_level`` (m).
-        When ``swl`` is present a water-level line is drawn on the seaward
-        side of the profile.
+        (all optional): ``wave_height`` (Hs, m), ``wave_period`` (Tp, s),
+        ``runup`` (m), ``total_water_level`` (TWL, m).
+        When ``total_water_level`` is present a water-level fill is drawn
+        on the seaward side of the profile using the sea colour.
 
     Returns
     -------
@@ -143,8 +143,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     c_sub   = "0.3"       # grey
     c_fill_pos = "#2ca02c"  # green (deposition)
     c_fill_neg = "#7b2cbf"  # purple (erosion)
-    c_swl   = "#00aadd"   # cyan-blue (SWL)
-    c_twl   = "#aa00dd"   # purple (TWL)
     c_sea   = "#b7dff5"   # soft ocean blue
     c_sand  = "#f4e6c8"   # very light sand
     
@@ -160,11 +158,11 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     #x_init, z_init = x_init[order_i], z_init[order_i]
     #x_curr, z_curr = x_curr[order_c], z_curr[order_c]
 
-    xg_start = max(x_init[1:].min(), x_curr[1:].min())
-    xg_end   = min(x_init[1:].max(), x_curr[1:].max())
+    xg_start = min(x_init[1:].min(), x_curr[1:].min())
+    xg_end   = max(x_init[1:].max(), x_curr[1:].max())
     if x_init[1:].size == 0 or x_curr[1:].size == 0 or xg_start >= xg_end:
-        # Profiles do not overlap – skip this snapshot
-        print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles do not overlap).")
+        # Profiles are empty or degenerate – skip this snapshot
+        print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles are empty or degenerate).")
         return None
 
     xg = np.linspace(xg_start, xg_end, 500)
@@ -173,9 +171,10 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     #z_curr_g = np.interp(xg, x_curr, z_curr)
     z_sub_g = np.interp(xg, substrate_x, substrate_z)
 
-    # Keep NaN outside original profile extents
-    z_init_g = np.interp(xg, x_init, z_init, left=np.nan, right=np.nan)
-    z_curr_g = np.interp(xg, x_curr, z_curr, left=np.nan, right=np.nan)
+    # Keep NaN outside profile extents — start from lee_foot (index 1) so that
+    # validity masks are bounded by each curve's lee_foot, not back_ref.
+    z_init_g = np.interp(xg, x_init[1:], z_init[1:], left=np.nan, right=np.nan)
+    z_curr_g = np.interp(xg, x_curr[1:], z_curr[1:], left=np.nan, right=np.nan)
     
     # Masks for robust change filling
     init_valid = np.isfinite(z_init_g)
@@ -189,8 +188,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 0.0,
                 z_curr_g,
                 where=np.isfinite(z_curr_g),
-                color=c_sand,
-                alpha=0.35,
+                facecolor=c_sand,
+                edgecolor='none',
+                alpha=0.6,
                 zorder=0.5)
 
     ax.fill_between(xg, z_init_g, z_curr_g,
@@ -217,7 +217,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     # Fallback deposition in final-only zones using edge level of initial profile.
     # This captures shoreline progradation beyond initial x-limits when substrate
     # capping would otherwise suppress the fill.
-    z_init_edge = np.where(xg < x_init.min(), z_init[0], z_init[-1])
+    z_init_edge = np.where(xg < x_init[1:].min(), z_init[1], z_init[-1])
     ax.fill_between(xg, z_init_edge, z_curr_g,
                     where=(curr_valid & ~init_valid & (z_curr_g > z_init_edge) & ~(z_curr_g > z_sub_g)),
                     color=c_fill_pos,
@@ -238,7 +238,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     z_curr_for_sea = np.where(np.isfinite(z_curr_g), z_curr_g, z_sub_g)
     
     if bc_info is not None:
-        swl = bc_info.get('swl')
         twl = bc_info.get('total_water_level')
         hs  = bc_info.get('wave_height')
         tp  = bc_info.get('wave_period')
@@ -268,43 +267,30 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                     return xa + (level - za) / (zb - za) * (xb - xa)
             return xarr[last]
 
-        if swl is not None:
-            # Find where the profile touches SWL (seaward-most point) then fill
-            # only the seaward water body (no fill on the lee side of the dike).
-            _tx_swl = _find_touch_x(_xfill, _zfill, swl)
-            ax.fill_between(_xfill, swl, _zfill,
-                            where=(_zfill <= swl) & (_xfill >= _tx_swl),
-                            color=c_swl, alpha=0.25, interpolate=True,
-                            zorder=1, label=f"SWL = {swl:.2f} m")
-            ax.plot([_tx_swl, x_sea_end], [swl, swl],
-                    color=c_swl, lw=2.0, linestyle='-.', zorder=5)
-
         if twl is not None:
             _dune_crest = dune_z_curr.get('seaward_crest')
             _is_overwash = (_dune_crest is not None and twl >= _dune_crest)
             if _is_overwash:
                 # Overwash: fill from x=0 all the way seaward
                 _z_back = dune_z_curr.get('back_ref',
-                                          #z_curr_g[0] if len(z_curr_g) > 0 else 0.0)
                                           z_curr_for_sea[0] if len(z_curr_for_sea) > 0 else 0.0)
                 _xfill_ow = np.concatenate([[0.0], xg, [x_sea_end]])
-                #_zfill_ow = np.concatenate([[_z_back], z_curr_g, [0.0]])
                 _zfill_ow = np.concatenate([[_z_back], z_curr_for_sea, [0.0]])
                 ax.fill_between(_xfill_ow, twl, _zfill_ow,
                                 where=(_zfill_ow <= twl),
-                                color=c_twl, alpha=0.20, interpolate=True,
+                                facecolor=c_sea, alpha=0.50, interpolate=True,
                                 zorder=1, label=f"TWL = {twl:.2f} m (overwash)")
                 ax.plot([0.0, x_sea_end], [twl, twl],
-                        color=c_twl, lw=1.8, linestyle=':', zorder=5)
+                        color=c_sea, lw=1.8, linestyle=':', zorder=5)
             else:
                 # Find touch point then restrict fill to the seaward side only.
                 _tx_twl = _find_touch_x(_xfill, _zfill, twl)
                 ax.fill_between(_xfill, twl, _zfill,
                                 where=(_zfill <= twl) & (_xfill >= _tx_twl),
-                                color=c_twl, alpha=0.20, interpolate=True,
+                                facecolor=c_sea, alpha=0.50, interpolate=True,
                                 zorder=1, label=f"TWL = {twl:.2f} m")
                 ax.plot([_tx_twl, x_sea_end], [twl, twl],
-                        color=c_twl, lw=1.8, linestyle=':', zorder=5)
+                        color=c_sea, lw=1.8, linestyle=':', zorder=5)
 
         # BC annotation box (upper-right)
         bc_lines = []
@@ -312,7 +298,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         if tp         is not None: bc_lines.append(f"Tp   = {tp:.1f} s")
         if wind_speed is not None: bc_lines.append(f"U10  = {wind_speed:.1f} m/s")
         if wind_dir   is not None: bc_lines.append(f"Wdir = {wind_dir:.0f}\u00b0")
-        if swl        is not None: bc_lines.append(f"SWL  = {swl:.2f} m")
         if r          is not None: bc_lines.append(f"R    = {r:.2f} m")
         if twl        is not None: bc_lines.append(f"TWL  = {twl:.2f} m")
 
@@ -326,9 +311,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                               facecolor="white",
                               edgecolor="0.4",
                               alpha=0.92))
-    
-            # Sea fill on the right side: between final profile and SWL.
-        _sea_level = bc_info.get('swl') if bc_info is not None else None
+
+        # Sea fill on the right side: between final profile and TWL.
+        _sea_level = bc_info.get('total_water_level') if bc_info is not None else None
         if _sea_level is not None:
             wet = z_curr_for_sea <= _sea_level
             # Keep only the wet segment connected to the right boundary (seaward side)
@@ -369,6 +354,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.tick_params(labelsize=13)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
     ax.legend(loc="lower left", fontsize=11, frameon=True)
+
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
 
     fig.tight_layout()
 
