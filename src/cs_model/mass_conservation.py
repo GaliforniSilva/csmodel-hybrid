@@ -24,7 +24,7 @@ package_dir = os.path.dirname(os.path.abspath(__file__))
 if package_dir not in sys.path:
     sys.path.insert(0, package_dir)
 
-from cs_model.functions import total_volume
+from cs_model.functions import partial_volume
 
 
 def calculate_actual_beach_volume(dune_x, vbeach, dclos, dfoot):
@@ -57,7 +57,19 @@ def calculate_actual_beach_volume(dune_x, vbeach, dclos, dfoot):
 def calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z):
     """
     Calculate total dune volume above substrate.
-    
+
+    The volume is integrated from ``lee_foot`` to ``ramp_toe`` using
+    ``partial_volume``.  Starting the integration at ``lee_foot`` (rather than
+    at ``back_ref``) avoids a phantom-volume artefact: when the lee foot rides
+    up the dike back face (``lee_foot.z > dfoot``), the straight line drawn by
+    ``total_volume`` from ``back_ref`` (at z = dfoot) to the elevated
+    ``lee_foot`` passes above the flat back-shore substrate (also at z = dfoot),
+    creating large spurious volume that is not backed by any real sediment flux.
+    Because the back-shore from ``back_ref`` to the base of the lee slope is
+    always at z = dfoot = substrate elevation, it contributes zero to the true
+    dune volume; ``partial_volume(lee_foot, ramp_toe)`` computes the same
+    correct value in all cases.
+
     Parameters
     ----------
     dune_x : dict
@@ -68,21 +80,14 @@ def calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z):
         List of substrate x-coordinates
     substrate_z : list
         List of substrate z-coordinates
-        
+
     Returns
     -------
     float
-        Total dune volume
+        Total dune volume above substrate (m³/m)
     """
-    x_list = [dune_x[k] for k in ['back_ref', 'lee_foot', 'lee_crest', 'crest_temp', 
-                                   'seaward_crest', 'ramp_dike_temp', 'ramp_crest', 
-                                   'ramp_toe_temp', 'ramp_toe', 'shoreline'] 
-              if k in dune_x and dune_x[k] is not None]
-    z_list = [dune_z[k] for k in ['back_ref', 'lee_foot', 'lee_crest', 'crest_temp', 
-                                   'seaward_crest', 'ramp_dike_temp', 'ramp_crest', 
-                                   'ramp_toe_temp', 'ramp_toe', 'shoreline']
-              if k in dune_z and dune_z[k] is not None]
-    return total_volume(x_list, z_list, substrate_x, substrate_z)
+    return partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                          dune_x['lee_foot'], dune_x['ramp_toe'])
 
 
 def calculate_compartment_volumes(dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, dclos, dfoot):
