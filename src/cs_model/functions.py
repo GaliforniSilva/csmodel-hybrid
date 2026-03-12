@@ -2032,7 +2032,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     #calculate the portion of the lee using the detached method
                     vleenew_detached = partial_volume(dune_x,dune_z,substrate_x,substrate_z,dune_x['lee_crest'],dune_x['seaward_crest']) + qs_lee # new volume of the crest after accretion
                     
-                    s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['seaward_crest']-dfoot) # adjust 10 if necessary
+                    #s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['seaward_crest']-dfoot) # adjust 10 if necessary
+                    s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['ramp_dike_temp']-dfoot) # adjust 10 if necessary
                     qs_lee = 0
 
                     #vcrestnew = vcrestnew + qs_lee #in this case makes the lee deposit on the top as well
@@ -2151,7 +2152,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['crest_temp'] = ysprim_new_clee
                     dune_x['ramp_dike_temp'] = ylprim_new_c
                     dune_z['ramp_dike_temp'] = s_new_c + dfoot
-                    dune_z['seaward_crest'] = s_new_c + dfoot
+                    dune_z['seaward_crest'] = s_new_clee + dfoot
                     dune_x['seaward_crest'] = ysprim_new_clee #this is slighlty off because of different betas, but test it like this to see if the rationale works before implementing a fix
                     dune_x['ramp_crest'] = ysprim_new_c
                     dune_z['ramp_crest'] = s_new_c + dfoot

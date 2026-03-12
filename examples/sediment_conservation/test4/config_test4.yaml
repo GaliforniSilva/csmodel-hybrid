@@ -41,7 +41,7 @@ constants:
   p: 0.4
   z: 10
   kappa: 0.4
-  cb: 2
+  cb: 0.08
   t: 0.5
   g: 9.81
   kw: 4.2

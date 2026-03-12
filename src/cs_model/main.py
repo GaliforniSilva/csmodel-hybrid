@@ -152,11 +152,11 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     x_curr = np.array(list(dune_x_curr.values()))
     z_curr = np.array(list(dune_z_curr.values()))
 
-    order_i = np.argsort(x_init)
-    order_c = np.argsort(x_curr)
+    #order_i = np.argsort(x_init, kind='stable')
+    #order_c = np.argsort(x_curr, kind='stable')
 
-    x_init, z_init = x_init[order_i], z_init[order_i]
-    x_curr, z_curr = x_curr[order_c], z_curr[order_c]
+    #x_init, z_init = x_init[order_i], z_init[order_i]
+    #x_curr, z_curr = x_curr[order_c], z_curr[order_c]
 
     xg_start = max(x_init[1:].min(), x_curr[1:].min())
     xg_end   = min(x_init[1:].max(), x_curr[1:].max())
@@ -773,9 +773,9 @@ def run_model(config_path, check_mass_conservation=False,
 
         ######## AEOLIAN DEPOSITION AT DUNE ########
 
-        #if i>73596:
+        if i==74233:
             #if dune_x['crest_temp']>=dune_x['seaward_crest']:
-        #    print(i)
+                print(i)
             
         qs_ramp, qs_crest, qs_lee = deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, p.dt, tetaw, wspeed, p.rhos, p.rhoa, p.d50, p.kappa, p.z, p.vegcount, p.awind, rhov_df=rhov_df, rhov_dt=rhov_dt, rhov_db=rhov_db, 
             rhov_df2=rhov_df2 if p.vegcount == 1 else 0, 
