@@ -142,10 +142,12 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     c_final = "#d62728"   # red
     c_sub   = "0.3"       # grey
     c_fill_pos = "#2ca02c"  # green (deposition)
-    c_fill_neg = "#ff7f0e"  # orange (erosion)
+    c_fill_neg = "#7b2cbf"  # purple (erosion)
     c_swl   = "#00aadd"   # cyan-blue (SWL)
     c_twl   = "#aa00dd"   # purple (TWL)
-
+    c_sea   = "#b7dff5"   # soft ocean blue
+    c_sand  = "#f4e6c8"   # very light sand
+    
     x_init = np.array(list(dune_x_init.values()))
     z_init = np.array(list(dune_z_init.values()))
 
@@ -167,26 +169,74 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
     xg = np.linspace(xg_start, xg_end, 500)
 
-    z_init_g = np.interp(xg, x_init, z_init)
-    z_curr_g = np.interp(xg, x_curr, z_curr)
+    #z_init_g = np.interp(xg, x_init, z_init)
+    #z_curr_g = np.interp(xg, x_curr, z_curr)
+    z_sub_g = np.interp(xg, substrate_x, substrate_z)
+
+    # Keep NaN outside original profile extents
+    z_init_g = np.interp(xg, x_init, z_init, left=np.nan, right=np.nan)
+    z_curr_g = np.interp(xg, x_curr, z_curr, left=np.nan, right=np.nan)
+    
+    # Masks for robust change filling
+    init_valid = np.isfinite(z_init_g)
+    curr_valid = np.isfinite(z_curr_g)
+    both_valid = init_valid & curr_valid
 
     fig, ax = plt.subplots(figsize=(10, 4.8))
+    
+    # Light sand body under the final profile
+    ax.fill_between(xg,
+                0.0,
+                z_curr_g,
+                where=np.isfinite(z_curr_g),
+                color=c_sand,
+                alpha=0.35,
+                zorder=0.5)
 
     ax.fill_between(xg, z_init_g, z_curr_g,
-                    where=(z_curr_g > z_init_g),
+                    #where=(z_curr_g > z_init_g),
+                    where=(both_valid & (z_curr_g > z_init_g)),
                     color=c_fill_pos,
                     interpolate=True, alpha=0.35, zorder=1, label="Deposition")
 
     ax.fill_between(xg, z_init_g, z_curr_g,
-                    where=(z_curr_g < z_init_g),
+                    #where=(z_curr_g < z_init_g),
+                    where=(both_valid & (z_curr_g < z_init_g)),
                     color=c_fill_neg,
                     interpolate=True, alpha=0.35, zorder=1, label="Erosion")
 
-    ax.plot(x_init[1:], z_init[1:], color=c_init, lw=2.8, zorder=3, label="Initial profile")
-    ax.plot(x_curr[1:], z_curr[1:], color=c_final, lw=2.8, zorder=3,
-            label=f"Profile at {progress_pct:.0f}%")
+    #ax.plot(x_init[1:], z_init[1:], color=c_init, lw=2.8, zorder=3, label="Initial profile")
+    #ax.plot(x_curr[1:], z_curr[1:], color=c_final, lw=2.8, zorder=3,
+    #        label=f"Profile at {progress_pct:.0f}%")
+  # Deposition in extension zones where only final profile exists (progradation/growth)
+    ax.fill_between(xg, z_sub_g, z_curr_g,
+                    where=(curr_valid & ~init_valid & (z_curr_g > z_sub_g)),
+                    color=c_fill_pos,
+                    interpolate=True, alpha=0.35, zorder=1)
 
+    # Fallback deposition in final-only zones using edge level of initial profile.
+    # This captures shoreline progradation beyond initial x-limits when substrate
+    # capping would otherwise suppress the fill.
+    z_init_edge = np.where(xg < x_init.min(), z_init[0], z_init[-1])
+    ax.fill_between(xg, z_init_edge, z_curr_g,
+                    where=(curr_valid & ~init_valid & (z_curr_g > z_init_edge) & ~(z_curr_g > z_sub_g)),
+                    color=c_fill_pos,
+                    interpolate=True, alpha=0.35, zorder=1)
+
+    # Erosion in extension zones where only initial profile exists (retreat)
+    ax.fill_between(xg, z_sub_g, z_init_g,
+                    where=(init_valid & ~curr_valid & (z_init_g > z_sub_g)),
+                    color=c_fill_neg,
+                    interpolate=True, alpha=0.35, zorder=1)
+
+    ax.plot(x_init, z_init, color=c_init, lw=2.8, zorder=3, label="Initial profile")
+    ax.plot(x_curr, z_curr, color=c_final, lw=2.8, zorder=3,
+            label=f"Profile at {progress_pct:.0f}%")
+    
     # ---- Boundary conditions ----
+    # Use surface that fills NaN gaps with substrate for water-level fills
+    z_curr_for_sea = np.where(np.isfinite(z_curr_g), z_curr_g, z_sub_g)
+    
     if bc_info is not None:
         swl = bc_info.get('swl')
         twl = bc_info.get('total_water_level')
@@ -202,7 +252,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
         # Extended profile grid to include the seaward visual margin
         _xfill = np.concatenate([xg, [x_sea_end]])
-        _zfill = np.concatenate([z_curr_g, [0.0]])
+        #_zfill = np.concatenate([z_curr_g, [0.0]])
+        _zfill = np.concatenate([z_curr_for_sea, [0.0]])
 
         def _find_touch_x(xarr, zarr, level):
             """Return the seaward-most x where the profile first rises to *level*."""
@@ -234,9 +285,11 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
             if _is_overwash:
                 # Overwash: fill from x=0 all the way seaward
                 _z_back = dune_z_curr.get('back_ref',
-                                          z_curr_g[0] if len(z_curr_g) > 0 else 0.0)
+                                          #z_curr_g[0] if len(z_curr_g) > 0 else 0.0)
+                                          z_curr_for_sea[0] if len(z_curr_for_sea) > 0 else 0.0)
                 _xfill_ow = np.concatenate([[0.0], xg, [x_sea_end]])
-                _zfill_ow = np.concatenate([[_z_back], z_curr_g, [0.0]])
+                #_zfill_ow = np.concatenate([[_z_back], z_curr_g, [0.0]])
+                _zfill_ow = np.concatenate([[_z_back], z_curr_for_sea, [0.0]])
                 ax.fill_between(_xfill_ow, twl, _zfill_ow,
                                 where=(_zfill_ow <= twl),
                                 color=c_twl, alpha=0.20, interpolate=True,
@@ -273,7 +326,29 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                               facecolor="white",
                               edgecolor="0.4",
                               alpha=0.92))
-
+    
+            # Sea fill on the right side: between final profile and SWL.
+        _sea_level = bc_info.get('swl') if bc_info is not None else None
+        if _sea_level is not None:
+            wet = z_curr_for_sea <= _sea_level
+            # Keep only the wet segment connected to the right boundary (seaward side)
+            if wet[-1]:
+                sea_mask = np.zeros_like(wet, dtype=bool)
+                dry_before = np.where(~wet)[0]
+                if dry_before.size > 0:
+                    sea_mask[dry_before[-1] + 1:] = True
+                else:
+                    sea_mask[:] = True
+                ax.fill_between(xg,
+                                z_curr_for_sea,
+                                _sea_level,
+                                where=(sea_mask & (z_curr_for_sea < _sea_level)),
+                                interpolate=True,
+                                facecolor=c_sea,
+                                alpha=0.75,
+                                linewidth=0,
+                                zorder=0)
+                
     # Fill the substrate body with a solid colour to mask any erosion/deposition
     # fills or water fills that extend into the non-erodible dike structure.
     # Only fill up to the dike seaward toe (substrate_x[4] / substrate_z[4]);
@@ -293,7 +368,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                  fontsize=14)
     ax.tick_params(labelsize=13)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
-    ax.legend(loc="lower right", fontsize=11, frameon=True)
+    ax.legend(loc="lower left", fontsize=11, frameon=True)
 
     fig.tight_layout()
 
