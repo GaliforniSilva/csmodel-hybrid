@@ -101,7 +101,7 @@ def load_config(config_path):
 
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                            substrate_x, substrate_z, output_base, timestep,
-                           progress_pct, bc_info=None):
+                           progress_pct, bc_info=None, y_lim_top=None):
     """
     Save a snapshot plot of the current cross-shore profile vs the initial profile.
 
@@ -132,6 +132,11 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         ``runup`` (m), ``total_water_level`` (TWL, m).
         When ``total_water_level`` is present a water-level fill is drawn
         on the seaward side of the profile using the sea colour.
+    y_lim_top : float or None, optional
+        Fixed upper limit for the y-axis.  When provided, all snapshots share
+        the same vertical range so that sudden water-level events do not cause
+        the axis to rescale between frames.  When ``None`` (default), the
+        upper limit is determined automatically by matplotlib.
 
     Returns
     -------
@@ -236,7 +241,12 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     # ---- Boundary conditions ----
     # Use surface that fills NaN gaps with substrate for water-level fills
     z_curr_for_sea = np.where(np.isfinite(z_curr_g), z_curr_g, z_sub_g)
-    
+
+    # Compute seaward extent of the sea fill (used for xlim regardless of bc_info)
+    _x_ramp_toe_lim  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
+    _x_shoreline_lim = dune_x_curr.get('shoreline', x_curr[1:].max())
+    x_sea_end = _x_shoreline_lim + 0.1 * (_x_shoreline_lim - _x_ramp_toe_lim)
+
     if bc_info is not None:
         twl = bc_info.get('total_water_level')
         hs  = bc_info.get('wave_height')
@@ -247,7 +257,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
         x_ramp_toe  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
         x_shoreline = dune_x_curr.get('shoreline', x_curr[1:].max())
-        x_sea_end   = x_shoreline + 0.1 * (x_shoreline - x_ramp_toe)
 
         # Extended profile grid to include the seaward visual margin
         _xfill = np.concatenate([xg, [x_sea_end]])
@@ -353,15 +362,19 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                  fontsize=14)
     ax.tick_params(labelsize=13)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
-    ax.legend(loc="lower left", fontsize=11, frameon=True)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18),
+              ncol=3, fontsize=11, frameon=True)
 
-    ax.set_xlim(left=0)
-    ax.set_ylim(bottom=0)
+    ax.set_xlim(left=0, right=x_sea_end)
+    if y_lim_top is not None:
+        ax.set_ylim(bottom=0, top=y_lim_top)
+    else:
+        ax.set_ylim(bottom=0)
 
     fig.tight_layout()
 
     plot_filename = f"{output_base}_{timestep}.png"
-    fig.savefig(plot_filename, dpi=150)
+    fig.savefig(plot_filename, dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     print(f"Profile snapshot saved to {plot_filename}")
@@ -660,6 +673,26 @@ def run_model(config_path, check_mass_conservation=False,
         _erosion_active = False
         _erosion_event_steps = 0
         _erosion_mid_saved = False
+
+        # Pre-compute a consistent y-axis upper limit from the full boundary
+        # time series so that snapshots do not rescale when large water-level
+        # events occur.  Uses the initial profile slope as a representative
+        # estimate of runup.
+        _slope_init = dune_z['ramp_toe'] / max(
+            dune_x['shoreline'] - dune_x['ramp_toe'], 1e-10
+        )
+        _h0_all  = np.array(wave_time_series) / 1.414  # Hs -> H_rms (H_rms = Hs/sqrt(2))
+        _tp_all  = np.array(wave_period_time_series)
+        _swl_all = np.array(swl_time_series)
+        # Deep-water wavelength: L0 = g*T^2/(2*pi) ≈ 1.5613*(0.95*Tp)^2
+        _LO_all  = 1.5613 * (0.95 * _tp_all) ** 2
+        # Runup estimate (Hallin et al. 2019): r = (0.158/0.03)*slope*sqrt(H*L0)
+        _r_all   = (0.158 / 0.03) * _slope_init * np.sqrt(_h0_all * _LO_all)
+        _twl_all = _r_all + _swl_all
+        # Add 15% headroom above the peak TWL for visual clarity
+        _plot_y_max = float(np.nanmax(_twl_all)) * 1.15
+        # Also ensure the initial dune crest (+ 0.5 m buffer) fits within the axis
+        _plot_y_max = max(_plot_y_max, (dune_z['seaward_crest'] + 0.5) * 1.15)
 
     ############################################################################
     # START SIMULATION
@@ -998,7 +1031,7 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info
+                    bc_info=_bc_info, y_lim_top=_plot_y_max
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1012,7 +1045,7 @@ def run_model(config_path, check_mass_conservation=False,
                         dune_x, dune_z,
                         substrate_x, substrate_z,
                         _plot_output_base, i + 1, current_pct,
-                        bc_info=_bc_info
+                        bc_info=_bc_info, y_lim_top=_plot_y_max
                     )
                     if _fp is not None:
                         _plot_saved_frames.append(_fp)
@@ -1024,7 +1057,7 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info
+                    bc_info=_bc_info, y_lim_top=_plot_y_max
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1036,7 +1069,7 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info
+                    bc_info=_bc_info, y_lim_top=_plot_y_max
                 )
                 if _frame_path is not None:
                     _plot_saved_frames.append(_frame_path)
