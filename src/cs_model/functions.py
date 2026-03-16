@@ -2183,17 +2183,14 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         #else:
                         return V - qs_lee
                     
-                    s_new_clee = brentq(f_crest_triangular_detach_flatcrest_tri, dune_z['lee_crest']-dfoot, dune_z['ramp_dike_temp']-dfoot) # adjust 10 if necessary
-                    qs_lee = 0
-
-                    #vcrestnew = vcrestnew + qs_lee #in this case makes the lee deposit on the top as well
-                    #qs_lee = 0
-                    #if f_crest_triangular_detach_flatcrest(dune_z['seaward_crest']) < 0 and f_crest_triangular_detach_flatcrest(dune_z['crest_temp']) < 0:
-                    #    s_new_c = dune_z['seaward_crest']
-                    #    vlee_lateral = f_crest_triangular_detach_flatcrest(dune_z['seaward_crest']) + vcrestnew
-                    #else:
-                    #    s_new_c = brentq(f_crest_triangular_detach_flatcrest, dune_z['crest_temp'], dune_z['seaward_crest']) # adjust 10 if necessary
-                    #    vlee_lateral = 0.0
+                    maxV = ((dune_z['ramp_dike_temp']-dfoot)-(dune_z['crest_temp']-dfoot))*(dune_x['crest_temp']-dune_x['lee_crest'])
+                    
+                    if maxV >=qs_lee:
+                        s_new_clee = brentq(f_crest_triangular_detach_flatcrest_tri, dune_z['lee_crest']-dfoot, dune_z['ramp_dike_temp']-dfoot) # adjust 10 if necessary
+                        qs_lee = 0
+                    else:
+                        s_new_clee = dune_z['ramp_dike_temp']-dfoot
+                        qs_lee = qs_lee - maxV
                         
                     ## Calculate corresponding pivot points
                     if s_new_clee<substrate_z[2]-dfoot:
