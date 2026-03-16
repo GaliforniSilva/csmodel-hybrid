@@ -869,9 +869,8 @@ def run_model(config_path, check_mass_conservation=False,
 
         ######## AEOLIAN DEPOSITION AT DUNE ########
 
-        if i==74233:
-            #if dune_x['crest_temp']>=dune_x['seaward_crest']:
-                print(i)
+        if i==64115:
+            print(i)
             
         qs_ramp, qs_crest, qs_lee = deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, p.dt, tetaw, wspeed, p.rhos, p.rhoa, p.d50, p.kappa, p.z, p.vegcount, p.awind, rhov_df=rhov_df, rhov_dt=rhov_dt, rhov_db=rhov_db, 
             rhov_df2=rhov_df2 if p.vegcount == 1 else 0, 
