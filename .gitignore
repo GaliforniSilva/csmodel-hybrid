@@ -24,3 +24,7 @@ test_*.pkl
 Thumbs.db
 *.pkl
 *_mass_conservation.txt
+
+# Simulation snapshot PNGs and GIFs generated during runs
+examples/**/*.png
+examples/**/*.gif
