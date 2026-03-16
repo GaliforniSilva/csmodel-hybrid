@@ -101,7 +101,8 @@ def load_config(config_path):
 
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                            substrate_x, substrate_z, output_base, timestep,
-                           progress_pct, bc_info=None, y_lim_top=None):
+                           progress_pct, bc_info=None, y_lim_top=None,
+                           x_lim_right=None):
     """
     Save a snapshot plot of the current cross-shore profile vs the initial profile.
 
@@ -137,6 +138,11 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         the same vertical range so that sudden water-level events do not cause
         the axis to rescale between frames.  When ``None`` (default), the
         upper limit is determined automatically by matplotlib.
+    x_lim_right : float or None, optional
+        Fixed right limit for the x-axis.  When provided, every snapshot uses
+        this value so GIF frames have consistent horizontal extent.  When
+        ``None`` (default) the limit is computed dynamically from the current
+        shoreline position.
 
     Returns
     -------
@@ -365,7 +371,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18),
               ncol=3, fontsize=11, frameon=True)
 
-    ax.set_xlim(left=0, right=x_sea_end)
+    ax.set_xlim(left=0, right=(x_lim_right if x_lim_right is not None else x_sea_end))
     if y_lim_top is not None:
         ax.set_ylim(bottom=0, top=y_lim_top)
     else:
@@ -691,8 +697,18 @@ def run_model(config_path, check_mass_conservation=False,
         _twl_all = _r_all + _swl_all
         # Add 15% headroom above the peak TWL for visual clarity
         _plot_y_max = float(np.nanmax(_twl_all)) * 1.15
-        # Also ensure the initial dune crest (+ 0.5 m buffer) fits within the axis
-        _plot_y_max = max(_plot_y_max, (dune_z['seaward_crest'] + 0.5) * 1.15)
+        # Generously account for aeolian dune growth: the dune can grow well
+        # beyond its initial height over long simulations.  Use 3× the initial
+        # crest elevation as a conservative upper bound.
+        _plot_y_max = max(_plot_y_max, dune_z['seaward_crest'] * 3.0)
+
+        # Pre-compute a fixed x-axis right limit from the initial profile so
+        # that all GIF frames share the same horizontal extent.  Use 20 %
+        # margin beyond the initial shoreline (same shape as the dynamic
+        # formula but evaluated only once).
+        _plot_x_max = dune_x['shoreline'] + 0.2 * (
+            dune_x['shoreline'] - dune_x['ramp_toe']
+        )
 
     ############################################################################
     # START SIMULATION
@@ -1030,7 +1046,8 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max
+                    bc_info=_bc_info, y_lim_top=_plot_y_max,
+                    x_lim_right=_plot_x_max
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1044,7 +1061,8 @@ def run_model(config_path, check_mass_conservation=False,
                         dune_x, dune_z,
                         substrate_x, substrate_z,
                         _plot_output_base, i + 1, current_pct,
-                        bc_info=_bc_info, y_lim_top=_plot_y_max
+                        bc_info=_bc_info, y_lim_top=_plot_y_max,
+                        x_lim_right=_plot_x_max
                     )
                     if _fp is not None:
                         _plot_saved_frames.append(_fp)
@@ -1056,7 +1074,8 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max
+                    bc_info=_bc_info, y_lim_top=_plot_y_max,
+                    x_lim_right=_plot_x_max
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1068,7 +1087,8 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max
+                    bc_info=_bc_info, y_lim_top=_plot_y_max,
+                    x_lim_right=_plot_x_max
                 )
                 if _frame_path is not None:
                     _plot_saved_frames.append(_frame_path)
