@@ -13,7 +13,7 @@ dune_parameters:
   betas: 0.1
   betal: 0.1
   betaf: 0.01
-  bw: 100.0
+  bw: 140.0
   s: 6.0
   sramp: 6.0
   ys: 360
@@ -26,7 +26,7 @@ dune_parameters:
 
 dune_volumes:
   vramp: 80.0
-  vbeach: 150.0
+  vbeach: 210.0
   volbar: 22.5
 
 sediment_transport:
@@ -83,7 +83,7 @@ boundary_conditions:
   wave_height: 1.0
   wave_period: 6.0
   wave_direction: 330.0
-  wind_speed: 20.0
+  wind_speed: 20.5
   wind_direction: 0.0
   swl: 'synthetic_swl.txt'
 

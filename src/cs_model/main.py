@@ -697,7 +697,7 @@ def run_model(config_path, check_mass_conservation=False,
         # Add 15% headroom above the peak TWL for visual clarity
         _plot_y_max = float(np.nanmax(_twl_all)) * 1.15
         # Also ensure the initial dune crest (+ 0.5 m buffer) fits within the axis
-        _plot_y_max = max(_plot_y_max, (dune_z['seaward_crest'] + 1.0) * 1.15)
+        _plot_y_max = max(_plot_y_max, (dune_z['seaward_crest'] + 6.0) * 1.15)
         # Pre-compute a fixed x-axis right limit from the initial profile so
        # that all GIF frames share the same horizontal extent.  Use 20 %
        # margin beyond the initial shoreline (same shape as the dynamic formula but evaluated only once).
