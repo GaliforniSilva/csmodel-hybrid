@@ -1426,7 +1426,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             deltavramp = qs_ramp # how much sand is deposited on the ramp
             
             # current, max, new
-            vramp      = ramp_volume(dune_z['ramp_crest']-dfoot, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
+            # Use partial_volume (not ramp_volume) so that intermediate profile
+            # points created by wave erosion (e.g. ramp_toe_temp sitting on the
+            # dike face, ramp_dike_temp) are correctly accounted for.  The 2-point
+            # ramp_volume approximation ignores those kinks and overestimates the
+            # actual sediment volume, which causes a spurious positive dune mass
+            # error in the first deposition timestep after each storm.
+            vramp      = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['ramp_crest'], dune_x['ramp_toe'])
             if (dune_x['seaward_crest'] <= substrate_x[2] and dune_z['seaward_crest'] <= substrate_z[2]) or dune_z['seaward_crest'] < dune_z['ramp_crest']: #case with detached lee side
                 if dune_z['ramp_crest']>substrate_z[2] and dune_z['ramp_crest']>dune_z['seaward_crest']: #detached case with flat surface
                     x_foot_max = dune_x['ramp_crest'] + ((dune_z['ramp_crest']-dfoot)/betas)
