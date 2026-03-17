@@ -1888,6 +1888,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         if qs_crest > 0:
             # change in the crest
             deltavcrest = qs_crest # how much sand is deposited on the crest
+            # Save pre-crest dune volume for conservation correction (detach_tag==2 path)
+            _pv_before_crest = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                                              dune_x['lee_foot'], dune_x['ramp_toe'])
             
             # calculate the substrate under the crest
 
@@ -2089,6 +2092,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     
                     #s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['seaward_crest']-dfoot) # adjust 10 if necessary
                     s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['ramp_dike_temp']-dfoot) # adjust 10 if necessary
+                    _qs_lee_for_correction = qs_lee  # save before zeroing for conservation correction
                     qs_lee = 0
 
                     #vcrestnew = vcrestnew + qs_lee #in this case makes the lee deposit on the top as well
@@ -2336,6 +2340,22 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 dune_z['ramp_toe'] = dfoot
                 dune_x['ramp_toe_temp'] = ys_new_c #TEST
                 dune_z['ramp_toe_temp'] = dfoot #TEST
+
+            # Conservation correction for detach_tag==2 (detached flat-crest regime).
+            # Moving pivot points (ramp_dike_temp, ramp_crest, lee_crest, crest_temp)
+            # creates second-order geometric volume changes not captured by the brentq
+            # volume functions.  Enforce exact conservation by adjusting ramp_toe so
+            # that partial_volume(after) - partial_volume(before) = deposited qs.
+            if detach_tag == 2:
+                _ramp_height = dune_z['ramp_crest'] - dfoot
+                if _ramp_height > 0.01:
+                    _pv_after_crest = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                                                     dune_x['lee_foot'], dune_x['ramp_toe'])
+                    _qs_deposited = deltavcrest + _qs_lee_for_correction
+                    _residual = _pv_after_crest - _pv_before_crest - _qs_deposited
+                    if abs(_residual) > 1e-12:
+                        dune_x['ramp_toe'] -= _residual / _ramp_height
+                        dune_x['ramp_toe_temp'] = dune_x['ramp_toe']
 
         
         ################## update lee ##################
