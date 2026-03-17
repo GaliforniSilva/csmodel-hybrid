@@ -189,6 +189,7 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
     # preventing large discontinuous volume jumps.  Pairs that can legitimately
     # be far out of canonical order (e.g. seaward_crest vs ramp_crest in the
     # detached case) are left to the sort.
+    
     _present = {k: i for i, k in enumerate(k for k in order if k in dune_x)}
     if 'crest_temp' in _present and 'seaward_crest' in _present:
         ict, isc = _present['crest_temp'], _present['seaward_crest']
@@ -206,7 +207,8 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
     sort_idx = np.argsort(x, kind='stable')
     x = x[sort_idx]
     z = z[sort_idx]
-
+    
+    
     # Densify dune curve
     n_per_segment = 100
 
@@ -2099,7 +2101,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     #    vlee_lateral = 0.0
                         
                     ## Calculate corresponding pivot points
-                    if s_new_clee < substrate_z[2]-dfoot and dune_z['crest_temp'] < substrate_z[2]:
+                    if s_new_clee<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                         ysprim_new_clee = dune_x['crest_temp'] + (s_new_clee - (dune_z['crest_temp']-dfoot)) / betal_hs
                     else:
                         ysprim_new_clee = dune_x['crest_temp'] + (s_new_clee - (dune_z['crest_temp']-dfoot)) / betal
@@ -2756,7 +2758,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             if deltavlee_temp is not None:
                 deltavlee = deltavlee_temp
                 deltavlee_temp = None
-
+                    
     return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall
 
 def subaq(DT, VOLBAR, HO, T, WFALL, SLR, BARNOUR, CB, BACTIVE):
