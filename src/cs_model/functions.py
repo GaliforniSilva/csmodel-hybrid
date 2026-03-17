@@ -176,6 +176,17 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
     x = np.array([dune_x[k] for k in order if k in dune_x])
     z = np.array([dune_z[k] for k in order if k in dune_z])
 
+    # Sort by x to ensure monotone integration.  During certain deposition
+    # states (detach_tag==2) seaward_crest can be placed seaward of
+    # ramp_dike_temp/ramp_crest, producing a non-monotone ordering that
+    # causes np.trapz to subtract area rather than add it.  Sorting makes
+    # partial_volume always return the physically correct sediment volume
+    # without altering any of the morphodynamic update logic.
+    sort_idx = np.argsort(x, kind='stable')
+    x = x[sort_idx]
+    z = z[sort_idx]
+    
+    
     # Densify dune curve
     n_per_segment = 100
 
