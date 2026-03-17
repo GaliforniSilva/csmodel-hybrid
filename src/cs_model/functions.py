@@ -2126,7 +2126,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             
                 # assume half goes to ramp side, half goes to lee side
                 vramp_lateral = vcrest_lateral / 2
-                vlee_lateral = vcrest_lateral / 2
+                vlee_lateral = vlee_lateral + (vcrest_lateral / 2)
             
                 # add condition for detached case
                 if dune_x['crest_temp'] > dune_x['lee_crest'] and dune_z['crest_temp'] == dune_z['lee_crest'] and dune_z['lee_crest'] < dune_z['ramp_dike_temp']: #substrate_z[2]: #detached with flat crest behind
@@ -2134,11 +2134,11 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     
                     # pivot points for trapezoid (before lateral redistribution) those two should be the same because it it a triangle
                     ysprim_tri = dune_x['ramp_crest'] - (s_max_triangular / betas)
-                    ylprim_tri = dune_x['ramp_dike_temp']# + (s_max_triangular / betal)
+                    ylprim_tri = dune_x['ramp_dike_temp'] + (s_max_triangular / betal)
                     
                     # --- lateral overflow mapping ---
                     # triangular cross-section: area = 0.5 * base * height -> base = 2 * area / height
-                    delta_ys = vramp_lateral / s_new_c
+                    delta_ys = 2*vramp_lateral / s_new_c
                 
                     # update positions
                     ys_new_c = dune_x['ramp_toe'] + delta_ys            # seaward dune foot
@@ -2248,7 +2248,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             elif detach_tag ==2:
                 
                 #check if the detached side reattached of not to the detached crest
-                if s_new_clee >= dune_z['seaward_crest'] - dfoot:
+                if s_new_clee > dune_z['seaward_crest'] - dfoot:
                     dune_x['lee_crest'] = ylprim_new_clee
                     dune_z['lee_crest'] = s_new_clee + dfoot
                     dune_z['crest_temp'] = s_new_clee + dfoot
