@@ -1427,6 +1427,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             
             # current, max, new
             vramp      = ramp_volume(dune_z['ramp_crest']-dfoot, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
+            #vramp      = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['ramp_crest'], dune_x['ramp_toe'])
             if (dune_x['seaward_crest'] <= substrate_x[2] and dune_z['seaward_crest'] <= substrate_z[2]) or dune_z['seaward_crest'] < dune_z['ramp_crest']: #case with detached lee side
                 if dune_z['ramp_crest']>substrate_z[2] and dune_z['ramp_crest']>dune_z['seaward_crest']: #detached case with flat surface
                     x_foot_max = dune_x['ramp_crest'] + ((dune_z['ramp_crest']-dfoot)/betas)
@@ -2189,7 +2190,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         s_new_clee = brentq(f_crest_triangular_detach_flatcrest_tri, dune_z['lee_crest']-dfoot, dune_z['ramp_dike_temp']-dfoot) # adjust 10 if necessary
                         qs_lee = 0
                     else:
-                        s_new_clee = dune_z['ramp_dike_temp']-dfoot
+                        s_new_clee = s_new_c # dune_z['ramp_dike_temp']-dfoot
                         qs_lee = qs_lee - maxV
                         
                     ## Calculate corresponding pivot points
@@ -2247,6 +2248,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 
             elif detach_tag ==2:
                 
+                #cap the size of the detached when reaching close to the top of the dune (betas different than betal, so size may change slightly)
+                if ysprim_new_clee > ysprim_new_c:
+                    ysprim_new_clee = ysprim_new_c
+                    
                 #check if the detached side reattached of not to the detached crest
                 if s_new_clee > dune_z['seaward_crest'] - dfoot:
                     dune_x['lee_crest'] = ylprim_new_clee
@@ -2269,7 +2274,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_z['ramp_dike_temp'] = s_new_c + dfoot
                     dune_x['ramp_crest'] = ysprim_new_c
                     dune_z['ramp_crest'] = s_new_c + dfoot
-                
+                    
+                # check if detachement condition still holds
+                if s_new_c == s_new_clee:
+                    #if so, move seaward crest back to standard position
+                    dune_x['seaward_crest'] = ysprim_new_c
+                    dune_x['crest_temp'] = ylprim_new_clee
+                    
             else:
                 dune_x['lee_foot'] = yl_new_c
                 dune_z['lee_foot'] = z_int_c
