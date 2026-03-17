@@ -83,7 +83,7 @@ boundary_conditions:
   wave_height: 1.0
   wave_period: 6.0
   wave_direction: 330.0
-  wind_speed: 20.5
+  wind_speed: 22.0
   wind_direction: 0.0
   swl: 'synthetic_swl.txt'
 

@@ -182,6 +182,28 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
     # causes np.trapz to subtract area rather than add it.  Sorting makes
     # partial_volume always return the physically correct sediment volume
     # without altering any of the morphodynamic update logic.
+    #
+    # Before sorting, snap specific profile-point pairs whose canonical order
+    # can accumulate a tiny numerical violation over many timesteps.  Snapping
+    # them to coincide lets the stable sort keep their canonical ordering,
+    # preventing large discontinuous volume jumps.  Pairs that can legitimately
+    # be far out of canonical order (e.g. seaward_crest vs ramp_crest in the
+    # detached case) are left to the sort.
+    
+    _present = {k: i for i, k in enumerate(k for k in order if k in dune_x)}
+    if 'crest_temp' in _present and 'seaward_crest' in _present:
+        ict, isc = _present['crest_temp'], _present['seaward_crest']
+        if x[ict] > x[isc]:
+            x[ict] = x[isc]   # crest_temp must not be seaward of seaward_crest
+    if 'seaward_crest' in _present and 'ramp_dike_temp' in _present:
+        isc, irdt = _present['seaward_crest'], _present['ramp_dike_temp']
+        if x[isc] > x[irdt]:
+            x[isc] = x[irdt]  # seaward_crest must not be seaward of ramp_dike_temp
+    if 'ramp_dike_temp' in _present and 'ramp_crest' in _present:
+        irdt, irc = _present['ramp_dike_temp'], _present['ramp_crest']
+        if x[irc] < x[irdt]:
+            x[irc] = x[irdt]  # ramp_crest must not be landward of ramp_dike_temp
+
     sort_idx = np.argsort(x, kind='stable')
     x = x[sort_idx]
     z = z[sort_idx]
@@ -1972,7 +1994,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     #yltemp = dune_x['crest_temp']
                     yltemp = dune_x['lee_crest'] # fixed at dike position
         
-                    if s_potential<substrate_z[2]-dfoot:
+                    if s_potential<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                         ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
                     else:
                         ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
@@ -2079,7 +2101,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     #    vlee_lateral = 0.0
                         
                     ## Calculate corresponding pivot points
-                    if s_new_clee<substrate_z[2]-dfoot:
+                    if s_new_clee<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                         ysprim_new_clee = dune_x['crest_temp'] + (s_new_clee - (dune_z['crest_temp']-dfoot)) / betal_hs
                     else:
                         ysprim_new_clee = dune_x['crest_temp'] + (s_new_clee - (dune_z['crest_temp']-dfoot)) / betal
@@ -2167,7 +2189,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         #yltemp = dune_x['crest_temp']
                         yltemp = dune_x['lee_crest'] # fixed at dike position
             
-                        if s_potential<substrate_z[2]-dfoot:
+                        if s_potential<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                             ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
                         else:
                             ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)

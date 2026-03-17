@@ -793,12 +793,20 @@ def run_model(config_path, check_mass_conservation=False,
         vegred = (1.0 - min(0.021 * Av_total, 0.28))
 
         if r + swl > p.dfoot:
-            if r + swl <= dune_z['seaward_crest']:
-                qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
-            else:
-                print('OVERWASH')
-                qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['seaward_crest']-p.dfoot)) / tp)
-                alfa = (((r + swl - p.dfoot) / (dune_z['seaward_crest']-p.dfoot)) - 1) / aover
+            if dune_z['seaward_crest'] >= dune_z['ramp_dike_temp']:
+                if r + swl <= dune_z['seaward_crest']:
+                    qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
+                else:
+                    print('OVERWASH')
+                    qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['seaward_crest']-p.dfoot)) / tp)
+                    alfa = (((r + swl - p.dfoot) / (dune_z['seaward_crest']-p.dfoot)) - 1) / aover
+            else: 
+                if r + swl <= dune_z['ramp_dike_temp']:
+                    qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
+                else:
+                    print('OVERWASH')
+                    qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['ramp_dike_temp']-p.dfoot)) / tp)
+                    alfa = (((r + swl - p.dfoot) / (dune_z['ramp_dike_temp']-p.dfoot)) - 1) / aover
         else:
             qd = 0.0
         
@@ -874,7 +882,10 @@ def run_model(config_path, check_mass_conservation=False,
 
         # Introduce dynamic reduction based on Duran and Moore (2013) Ad
         #qwnet = qwnet * max(1.0 - 4.2 * (s-p.dfoot) / (yg - ys), 0.0)
-        qwnet = qwnet * max(1.0 - 4.2 * (dune_z['seaward_crest']-p.dfoot) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
+        if dune_z['seaward_crest'] >= dune_z['ramp_dike_temp']:
+            qwnet = qwnet * max(1.0 - 4.2 * (dune_z['seaward_crest']-p.dfoot) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
+        else:
+            qwnet = qwnet * max(1.0 - 4.2 * (dune_z['ramp_dike_temp']-p.dfoot) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
 
         ######## AEOLIAN DEPOSITION AT DUNE ########
 
