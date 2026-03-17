@@ -182,11 +182,30 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
     # causes np.trapz to subtract area rather than add it.  Sorting makes
     # partial_volume always return the physically correct sediment volume
     # without altering any of the morphodynamic update logic.
+    #
+    # Before sorting, snap two specific profile-point pairs that can never
+    # physically cross but may accumulate a tiny numerical violation over
+    # many timesteps:
+    #   • crest_temp should always be at or landward of seaward_crest
+    #   • ramp_crest should always be at or seaward of ramp_dike_temp
+    # Snapping them to coincide lets the stable sort keep their canonical
+    # order, preventing large discontinuous volume jumps.  All other pairs
+    # (e.g. seaward_crest vs ramp_crest in the detached case) are left
+    # to the sort, which handles genuine large folds correctly.
+    _present = {k: i for i, k in enumerate(k for k in order if k in dune_x)}
+    if 'crest_temp' in _present and 'seaward_crest' in _present:
+        ict, isc = _present['crest_temp'], _present['seaward_crest']
+        if x[ict] > x[isc]:
+            x[ict] = x[isc]   # snap: crest_temp must not be seaward of seaward_crest
+    if 'ramp_dike_temp' in _present and 'ramp_crest' in _present:
+        irdt, irc = _present['ramp_dike_temp'], _present['ramp_crest']
+        if x[irc] < x[irdt]:
+            x[irc] = x[irdt]  # snap: ramp_crest must not be landward of ramp_dike_temp
+
     sort_idx = np.argsort(x, kind='stable')
     x = x[sort_idx]
     z = z[sort_idx]
-    
-    
+
     # Densify dune curve
     n_per_segment = 100
 
@@ -2736,18 +2755,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             if deltavlee_temp is not None:
                 deltavlee = deltavlee_temp
                 deltavlee_temp = None
-
-    # Enforce canonical profile-point ordering so that partial_volume
-    # (which sorts by x) does not produce discontinuous volume jumps when
-    # two adjacent points cross by a tiny numerical amount:
-    #   • ramp_crest must never be landward of ramp_dike_temp
-    #   • crest_temp must never be seaward of seaward_crest
-    if dune_x['ramp_crest'] < dune_x['ramp_dike_temp']:
-        dune_x['ramp_crest'] = dune_x['ramp_dike_temp']
-        dune_z['ramp_crest'] = dune_z['ramp_dike_temp']
-    if dune_x['crest_temp'] > dune_x['seaward_crest']:
-        dune_x['crest_temp'] = dune_x['seaward_crest']
-        dune_z['crest_temp'] = dune_z['seaward_crest']
 
     return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall
 
