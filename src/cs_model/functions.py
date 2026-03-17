@@ -1972,7 +1972,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     #yltemp = dune_x['crest_temp']
                     yltemp = dune_x['lee_crest'] # fixed at dike position
         
-                    if s_potential<substrate_z[2]-dfoot:
+                    if s_potential<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                         ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
                     else:
                         ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
@@ -2079,7 +2079,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     #    vlee_lateral = 0.0
                         
                     ## Calculate corresponding pivot points
-                    if s_new_clee<substrate_z[2]-dfoot:
+                    if s_new_clee < substrate_z[2]-dfoot and dune_z['crest_temp'] < substrate_z[2]:
                         ysprim_new_clee = dune_x['crest_temp'] + (s_new_clee - (dune_z['crest_temp']-dfoot)) / betal_hs
                     else:
                         ysprim_new_clee = dune_x['crest_temp'] + (s_new_clee - (dune_z['crest_temp']-dfoot)) / betal
@@ -2167,7 +2167,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         #yltemp = dune_x['crest_temp']
                         yltemp = dune_x['lee_crest'] # fixed at dike position
             
-                        if s_potential<substrate_z[2]-dfoot:
+                        if s_potential<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                             ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
                         else:
                             ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
@@ -2736,7 +2736,19 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             if deltavlee_temp is not None:
                 deltavlee = deltavlee_temp
                 deltavlee_temp = None
-                    
+
+    # Enforce canonical profile-point ordering so that partial_volume
+    # (which sorts by x) does not produce discontinuous volume jumps when
+    # two adjacent points cross by a tiny numerical amount:
+    #   • ramp_crest must never be landward of ramp_dike_temp
+    #   • crest_temp must never be seaward of seaward_crest
+    if dune_x['ramp_crest'] < dune_x['ramp_dike_temp']:
+        dune_x['ramp_crest'] = dune_x['ramp_dike_temp']
+        dune_z['ramp_crest'] = dune_z['ramp_dike_temp']
+    if dune_x['crest_temp'] > dune_x['seaward_crest']:
+        dune_x['crest_temp'] = dune_x['seaward_crest']
+        dune_z['crest_temp'] = dune_z['seaward_crest']
+
     return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall
 
 def subaq(DT, VOLBAR, HO, T, WFALL, SLR, BARNOUR, CB, BACTIVE):
