@@ -183,24 +183,25 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
     # partial_volume always return the physically correct sediment volume
     # without altering any of the morphodynamic update logic.
     #
-    # Before sorting, snap two specific profile-point pairs that can never
-    # physically cross but may accumulate a tiny numerical violation over
-    # many timesteps:
-    #   • crest_temp should always be at or landward of seaward_crest
-    #   • ramp_crest should always be at or seaward of ramp_dike_temp
-    # Snapping them to coincide lets the stable sort keep their canonical
-    # order, preventing large discontinuous volume jumps.  All other pairs
-    # (e.g. seaward_crest vs ramp_crest in the detached case) are left
-    # to the sort, which handles genuine large folds correctly.
+    # Before sorting, snap specific profile-point pairs whose canonical order
+    # can accumulate a tiny numerical violation over many timesteps.  Snapping
+    # them to coincide lets the stable sort keep their canonical ordering,
+    # preventing large discontinuous volume jumps.  Pairs that can legitimately
+    # be far out of canonical order (e.g. seaward_crest vs ramp_crest in the
+    # detached case) are left to the sort.
     _present = {k: i for i, k in enumerate(k for k in order if k in dune_x)}
     if 'crest_temp' in _present and 'seaward_crest' in _present:
         ict, isc = _present['crest_temp'], _present['seaward_crest']
         if x[ict] > x[isc]:
-            x[ict] = x[isc]   # snap: crest_temp must not be seaward of seaward_crest
+            x[ict] = x[isc]   # crest_temp must not be seaward of seaward_crest
+    if 'seaward_crest' in _present and 'ramp_dike_temp' in _present:
+        isc, irdt = _present['seaward_crest'], _present['ramp_dike_temp']
+        if x[isc] > x[irdt]:
+            x[isc] = x[irdt]  # seaward_crest must not be seaward of ramp_dike_temp
     if 'ramp_dike_temp' in _present and 'ramp_crest' in _present:
         irdt, irc = _present['ramp_dike_temp'], _present['ramp_crest']
         if x[irc] < x[irdt]:
-            x[irc] = x[irdt]  # snap: ramp_crest must not be landward of ramp_dike_temp
+            x[irc] = x[irdt]  # ramp_crest must not be landward of ramp_dike_temp
 
     sort_idx = np.argsort(x, kind='stable')
     x = x[sort_idx]
