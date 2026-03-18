@@ -1,6 +1,6 @@
 # CS-Hybrid Model — Simulation Flowchart
 
-This document provides a scientific overview flowchart of the **CS-Hybrid 1D Coastal Profile Evolution Model** in both Mermaid and PlantUML formats, suitable for use as figures in a scientific paper.
+This document provides a high-level scientific overview flowchart of the **CS-Hybrid 1D Coastal Profile Evolution Model** in both Mermaid and PlantUML formats, suitable for use as a figure in a scientific paper.
 
 ---
 
@@ -8,80 +8,24 @@ This document provides a scientific overview flowchart of the **CS-Hybrid 1D Coa
 
 ```mermaid
 flowchart TD
-    %% ── INITIALISATION ─────────────────────────────────────────────────────
-    START([Start]) --> A1["Read model configuration\nCoastal geometry, physical constants,\nvegetation & structure parameters"]
-    A1 --> A2["Initialise coastal profile\nDune–dike cross-shore geometry\nNon-erodible substrate definition"]
-    A2 --> A3["Load forcing time series\nWave conditions, water levels, wind"]
-    A3 --> A4["Initialise sediment volumes\nBeach, dune, subtidal bar compartments"]
+    START([Start]) --> A1["Model Initialisation\nCoastal profile geometry\nForcing time series · Initial sediment volumes"]
 
-    %% ── MAIN TIME LOOP ──────────────────────────────────────────────────────
-    A4 --> LOOP_START{{"Time loop\n(10-min time steps)"}}
+    A1 --> LOOP{{"Time step loop"}}
 
-    LOOP_START --> B1["Read boundary conditions\nHs, Tp, wave direction, SWL\nWind speed & direction"]
+    LOOP --> B1["Hydrodynamic Forcing\nWave runup · Total Water Level"]
+    B1   --> B2["Wave Erosion\nErosion and overwash fluxes"]
+    B2   --> B3["Aeolian Transport\nBeach-to-dune sediment flux"]
+    B3   --> B4["Subtidal Bar Evolution\nEquilibrium-based volume change"]
+    B4   --> B5["Morphodynamic Profile Update\nDune geometry · Hard-structure interaction"]
+    B5   --> B6["Vegetation Dynamics\nTwo-species seasonal growth model"]
+    B6   --> B7["Sediment Budget Update\nBeach volume · Shoreline position"]
 
-    %% ── HYDRODYNAMICS ───────────────────────────────────────────────────────
-    B1 --> B2{"Onshore wave\ndirection?"}
-    B2 -- "No\n(offshore)" --> B3["No wave forcing"]
-    B2 -- "Yes\n(onshore)" --> B4["Compute wave parameters\nRMS wave height, deep-water wavelength\nForeshore slope"]
+    B7 --> C1{"Simulation\ncomplete?"}
+    C1 -- "No"  --> LOOP
+    C1 -- "Yes" --> D1["Write Output\nTime series of all model variables"]
 
-    B3 --> B5["Compute wave runup\nEmpirical runup formula\nFriction damping\nTotal Water Level = runup + SWL"]
-    B4 --> B5
+    D1 --> STOP([End])
 
-    B5 --> B6{"TWL exceeds\ndune toe?"}
-    B6 -- No --> B7["No wave erosion\nthis time step"]
-    B6 -- Yes --> B8["Compute wave-driven erosion flux\nVegetation attenuation factor\nPartition: ramp erosion + overwash flux"]
-
-    %% ── AEOLIAN TRANSPORT ───────────────────────────────────────────────────
-    B7 --> C1
-    B8 --> C1
-    C1{"Onshore wind\ndirection?"}
-    C1 -- "No\n(offshore)" --> C2["No aeolian transport"]
-    C1 -- "Yes\n(onshore)" --> C3["Compute aeolian transport flux\nWind shear velocity vs.\ncritical threshold for sediment motion"]
-
-    C2 --> C4
-    C3 --> C4
-    C4["Distribute aeolian deposition across dune\nVegetation trapping efficiency per zone\nSediment flux to: ramp, crest, lee"]
-
-    %% ── SUBTIDAL BAR ────────────────────────────────────────────────────────
-    C4 --> D1["Update subtidal bar\nDean parameter → equilibrium bar volume\nExponential relaxation toward equilibrium"]
-
-    %% ── MORPHODYNAMIC UPDATE ────────────────────────────────────────────────
-    D1 --> E1["Compute net wave-driven\nsediment flux"]
-
-    E1 --> E2{"Net erosion\nor accretion?"}
-
-    E2 -- "Erosion" --> E3{"Hard structure\nexposed by waves?"}
-    E3 -- "Yes" --> E4["Structure-limited erosion\nCap dune retreat at structure face"]
-    E3 -- "No" --> E5["Overwash dynamics\nSediment transported to lee slope"]
-
-    E2 -- "Accretion" --> E6["Seaward ramp deposition\nGeometric profile update"]
-    E6 --> E7["Crest deposition\nExpand or raise dune crest"]
-    E7 --> E8["Lee-slope deposition\nBuild landward slope\nStructure interaction if applicable"]
-
-    E4 --> F1
-    E5 --> F1
-    E8 --> F1
-
-    %% ── VEGETATION ──────────────────────────────────────────────────────────
-    F1{"Vegetation update\ninterval reached?\n(monthly)"}
-    F1 -- "No" --> G1
-    F1 -- "Yes" --> F2["Update vegetation density\nTwo-species competition model\nSedimentation-rate growth response\nSeasonal growth/decay cycle\nDune foot, crest & lee zones"]
-
-    %% ── VOLUME & BEACH UPDATE ───────────────────────────────────────────────
-    F2 --> G1
-    G1["Update sediment volumes\nBeach: aeolian export + bar exchange + SLR\nDune: ramp, crest, lee contributions\nNew shoreline position"]
-
-    %% ── STORE OUTPUTS ───────────────────────────────────────────────────────
-    G1 --> H1["Store time-step outputs\nMorphology, volumes, wave conditions\nVegetation state, sediment fluxes"]
-
-    %% ── LOOP BACK OR FINISH ─────────────────────────────────────────────────
-    H1 --> I1{"Simulation\ncomplete?"}
-    I1 -- "No → next step" --> LOOP_START
-    I1 -- "Yes" --> J1["Write output\nTime series of all model variables"]
-
-    J1 --> STOP([End])
-
-    %% ── STYLING ─────────────────────────────────────────────────────────────
     classDef init    fill:#d4ecd4,stroke:#2e7d32,color:#000
     classDef loop    fill:#fff9c4,stroke:#f9a825,color:#000
     classDef hydro   fill:#b3e0f7,stroke:#0277bd,color:#000
@@ -92,15 +36,15 @@ flowchart TD
     classDef vol     fill:#e0f2f1,stroke:#004d40,color:#000
     classDef out     fill:#f5f5f5,stroke:#424242,color:#000
 
-    class START,A1,A2,A3,A4 init
-    class LOOP_START,B1 loop
-    class B2,B3,B4,B5,B6,B7,B8 hydro
-    class C1,C2,C3,C4 aeolian
-    class D1 bar
-    class E1,E2,E3,E4,E5,E6,E7,E8 morpho
-    class F1,F2 veg
-    class G1 vol
-    class H1,I1,J1,STOP out
+    class START,A1 init
+    class LOOP loop
+    class B1,B2 hydro
+    class B3 aeolian
+    class B4 bar
+    class B5 morpho
+    class B6 veg
+    class B7 vol
+    class C1,D1,STOP out
 ```
 
 ---
@@ -116,85 +60,34 @@ skinparam activity {
   BorderColor     #424242
   FontSize        12
 }
-skinparam decision {
-  BackgroundColor #FFF9C4
-  BorderColor     #F9A825
-}
 skinparam ArrowColor #37474F
 skinparam roundCorner 8
 
-title CS-Hybrid 1D Coastal Profile Evolution Model\nScientific Overview Flowchart
+title CS-Hybrid 1D Coastal Profile Evolution Model
 
 start
 
-' ── INITIALISATION ──────────────────────────────────────────────────────────
-#d4ecd4:Read model configuration\nCoastal geometry, physical constants,\nvegetation & structure parameters;
-#d4ecd4:Initialise coastal profile\nDune–dike cross-shore geometry\nNon-erodible substrate definition;
-#d4ecd4:Load forcing time series\nWave conditions, water levels, wind;
-#d4ecd4:Initialise sediment volumes\nBeach, dune, subtidal bar compartments;
+#d4ecd4:Model Initialisation\nCoastal profile geometry · Forcing time series · Initial sediment volumes;
 
-' ── MAIN TIME LOOP ──────────────────────────────────────────────────────────
-while (Time loop — 10-min time steps) is (next step)
+while (Simulation running?) is (next step)
 
-  #fff9c4:Read boundary conditions\nHs, Tp, wave direction, SWL\nWind speed & direction;
+  #b3e0f7:Hydrodynamic Forcing\nWave runup · Total Water Level;
 
-  ' -- HYDRODYNAMICS ----------------------------------------------------------
-  if (Onshore wave direction?) then (Yes)
-    #b3e0f7:Compute wave parameters\nRMS wave height, deep-water wavelength\nForeshore slope;
-  else (No — offshore)
-    #b3e0f7:No wave forcing this time step;
-  endif
+  #b3e0f7:Wave Erosion\nErosion and overwash fluxes;
 
-  #b3e0f7:Compute wave runup\nEmpirical runup formula · friction damping\nTotal Water Level = runup + SWL;
+  #ffe0b2:Aeolian Transport\nBeach-to-dune sediment flux;
 
-  if (TWL exceeds dune toe?) then (Yes)
-    #b3e0f7:Compute wave-driven erosion flux\nVegetation attenuation factor\nPartition: ramp erosion + overwash flux;
-  else (No)
-    #b3e0f7:No wave erosion this time step;
-  endif
+  #e8d5f5:Subtidal Bar Evolution\nEquilibrium-based volume change;
 
-  ' -- AEOLIAN TRANSPORT -------------------------------------------------------
-  if (Onshore wind direction?) then (Yes)
-    #ffe0b2:Compute aeolian transport flux\nWind shear velocity vs.\ncritical threshold for sediment motion;
-  else (No — offshore)
-    #ffe0b2:No aeolian transport;
-  endif
+  #fce4ec:Morphodynamic Profile Update\nDune geometry · Hard-structure interaction;
 
-  #ffe0b2:Distribute aeolian deposition across dune\nVegetation trapping efficiency per zone\nSediment flux to: ramp, crest, lee;
+  #c8e6c9:Vegetation Dynamics\nTwo-species seasonal growth model;
 
-  ' -- SUBTIDAL BAR ------------------------------------------------------------
-  #e8d5f5:Update subtidal bar\nDean parameter → equilibrium bar volume\nExponential relaxation toward equilibrium;
-
-  ' -- MORPHODYNAMIC UPDATE ----------------------------------------------------
-  #fce4ec:Compute net wave-driven sediment flux;
-
-  if (Net erosion or accretion?) then (Erosion)
-    if (Hard structure exposed by waves?) then (Yes)
-      #fce4ec:Structure-limited erosion\nCap dune retreat at structure face;
-    else (No)
-      #fce4ec:Overwash dynamics\nSediment transported to lee slope;
-    endif
-  else (Accretion)
-    #fce4ec:Seaward ramp deposition\nGeometric profile update;
-    #fce4ec:Crest deposition\nExpand or raise dune crest;
-    #fce4ec:Lee-slope deposition\nBuild landward slope\nStructure interaction if applicable;
-  endif
-
-  ' -- VEGETATION UPDATE -------------------------------------------------------
-  if (Vegetation update interval reached? (monthly)) then (Yes)
-    #c8e6c9:Update vegetation density\nTwo-species competition model\nSedimentation-rate growth response\nSeasonal growth/decay cycle\nDune foot, crest & lee zones;
-  endif
-
-  ' -- VOLUME AND BEACH UPDATE -------------------------------------------------
-  #e0f2f1:Update sediment volumes\nBeach: aeolian export + bar exchange + SLR\nDune: ramp, crest, lee contributions\nNew shoreline position;
-
-  ' -- STORE OUTPUTS -----------------------------------------------------------
-  #f5f5f5:Store time-step outputs\nMorphology, volumes, wave conditions\nVegetation state, sediment fluxes;
+  #e0f2f1:Sediment Budget Update\nBeach volume · Shoreline position;
 
 endwhile (Simulation complete)
 
-' ── OUTPUT / POST-PROCESSING ────────────────────────────────────────────────
-#d4ecd4:Write output\nTime series of all model variables;
+#d4ecd4:Write Output\nTime series of all model variables;
 
 stop
 
@@ -207,17 +100,16 @@ stop
 
 ### Module Colour Key
 
-| Colour | Stage | Description |
-|--------|-------|-------------|
-| 🟢 Green | **Initialisation** | Configuration, profile setup, time-series loading |
-| 🟡 Yellow | **Time loop** | Main integration loop and boundary condition reading |
-| 🔵 Blue | **Hydrodynamics** | Wave direction filter, runup, erosion-potential calculation |
-| 🟠 Orange | **Aeolian transport** | Wind direction filter, shear-velocity threshold, dune deposition |
-| 🟣 Purple | **Subtidal bar** | Dean parameter, bar equilibrium volume, relaxation |
-| 🔴 Red | **Morphodynamics** | Erosion/accretion geometry update, hard-structure interaction |
-| 🌿 Dark green | **Vegetation** | Two-species seasonal growth and decay model |
-| 🩵 Teal | **Volume & beach** | Sediment volume bookkeeping and shoreline update |
-| ⬜ Grey | **Output** | Result storage and file writing |
+| Colour | Module | Description |
+|--------|--------|-------------|
+| 🟢 Green | **Initialisation / Output** | Profile setup, forcing loading, result writing |
+| 🟡 Yellow | **Time loop** | Main integration loop |
+| 🔵 Blue | **Hydrodynamics** | Wave runup, total water level, erosion and overwash |
+| 🟠 Orange | **Aeolian transport** | Wind-driven beach-to-dune sediment flux |
+| 🟣 Purple | **Subtidal bar** | Equilibrium bar volume and exchange with beach |
+| 🔴 Red | **Morphodynamics** | Cross-shore profile update, hard-structure interaction |
+| 🌿 Dark green | **Vegetation** | Two-species seasonal growth and decay |
+| 🩵 Teal | **Sediment budget** | Beach volume balance and shoreline position |
 
 ---
 
@@ -227,14 +119,8 @@ stop
 |--------|---------|
 | **Hs** | Significant wave height [m] |
 | **Tp** | Peak wave period [s] |
-| **SWL** | Still water level (tide + surge) [m NAP] |
-| **TWL** | Total water level = wave runup + SWL [m NAP] |
-| **β** | Foreshore slope [-] |
-| **qs** | Wave-driven erosion flux (ramp) [m³/m/s] |
-| **ql** | Overwash flux (lee slope) [m³/m/s] |
-| **qw** | Net aeolian (wind) sediment flux [m³/m/s] |
-| **qbar** | Subtidal bar sediment flux [m³/m/s] |
+| **SWL** | Still water level (tide + surge) [m] |
+| **TWL** | Total water level = wave runup + SWL [m] |
 | **SLR** | Sea-level rise rate [m/yr] |
-| **ρ₁, ρ₂** | Vegetation cover fraction, species 1 & 2 [-] |
-| **d50** | Median sediment grain diameter [m] |
-| **dt** | Simulation time step (~10 min) [s] |
+| **ρ₁, ρ₂** | Vegetation cover fraction, pioneer & mature species [-] |
+
