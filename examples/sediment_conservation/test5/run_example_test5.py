@@ -28,7 +28,11 @@ from cs_model.main import run_model
 
 ####################### RUN MODEL #########################
 
-results = run_model("config_test5.yaml")
+results = run_model("config_test5.yaml",
+            check_mass_conservation=True,
+            plot_evolution=True,
+            plot_evolution_interval=1,  # snapshot every %
+            save_evolution_movie=True)
 
 ################### LOAD MODEL OUTPUT #################
 
