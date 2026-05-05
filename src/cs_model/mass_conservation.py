@@ -208,7 +208,7 @@ def calculate_timestep_conservation(volumes_current, volumes_prev, fluxes, dt, i
     }
 
 
-def check_mass_conservation(results, config, verbose=True):
+def check_mass_conservation(results, config, verbose=True, skip_first_step=False):
     """
     Check mass conservation in model results and generate a report.
     
@@ -220,6 +220,14 @@ def check_mass_conservation(results, config, verbose=True):
         Configuration dictionary with model parameters
     verbose : bool, optional
         If True, print detailed report. Default is True.
+    skip_first_step : bool, optional
+        If True, the first model time step (i=0) is excluded from the
+        conservation analysis.  The initial state is then taken as the
+        state *after* the first step (``results['dune_x'][1]``,
+        ``results['vbeach'][0]``, ``results['volbar'][0]``) and all
+        flux integrals are accumulated starting from step index 1.
+        Default is False (use the true initial state, i.e. current
+        behaviour).
         
     Returns
     -------
@@ -263,15 +271,31 @@ def check_mass_conservation(results, config, verbose=True):
     report_print(f"  Number of time steps: {n_steps}")
     report_print(f"  Time step: {dt:.0f} seconds")
     report_print(f"  Total simulation time: {total_time_hours:.1f} hours ({total_time_hours/24:.1f} days)")
+    if skip_first_step:
+        report_print(f"  (First time step excluded from conservation analysis)")
     report_print()
     
+    # Determine the flux/phantom-correction start index.
+    # When skip_first_step=True, step 0 is excluded and the "initial state" is
+    # taken as the model state *after* the first time step.
+    flux_start = 1 if skip_first_step else 0
+    
     # Calculate volumes at start and end.
-    # Fix: derive initial vbeach from the initial geometry (results['vbeach'][0]
-    # is the beach volume *after* the first time step, not the initial state).
-    initial_vbeach = ((results['dune_x'][0]['shoreline'] - results['dune_x'][0]['ramp_toe']) - bl) / al
-    initial_dune_vol = calc_dune_vol(results['dune_x'][0], results['dune_z'][0], substrate_x, substrate_z)
-    initial_beach_vol = calculate_actual_beach_volume(results['dune_x'][0], initial_vbeach, dclos, dfoot)
-    initial_bar_vol = results['volbar'][0] - results['qbar'][0] * dt  # true initial bar vol (before first update)
+    if skip_first_step:
+        # Use state after first step directly (no reconstruction needed).
+        # results['dune_x'][1] is the profile after step 0; results['vbeach'][0]
+        # and results['volbar'][0] are the corresponding beach/bar volumes.
+        initial_vbeach = results['vbeach'][0]
+        initial_dune_vol = calc_dune_vol(results['dune_x'][1], results['dune_z'][1], substrate_x, substrate_z)
+        initial_beach_vol = calculate_actual_beach_volume(results['dune_x'][1], initial_vbeach, dclos, dfoot)
+        initial_bar_vol = results['volbar'][0]
+    else:
+        # Fix: derive initial vbeach from the initial geometry (results['vbeach'][0]
+        # is the beach volume *after* the first time step, not the initial state).
+        initial_vbeach = ((results['dune_x'][0]['shoreline'] - results['dune_x'][0]['ramp_toe']) - bl) / al
+        initial_dune_vol = calc_dune_vol(results['dune_x'][0], results['dune_z'][0], substrate_x, substrate_z)
+        initial_beach_vol = calculate_actual_beach_volume(results['dune_x'][0], initial_vbeach, dclos, dfoot)
+        initial_bar_vol = results['volbar'][0] - results['qbar'][0] * dt  # true initial bar vol (before first update)
     initial_total = initial_dune_vol + initial_beach_vol + initial_bar_vol
     
     final_dune_vol = calc_dune_vol(results['dune_x'][-1], results['dune_z'][-1], substrate_x, substrate_z)
@@ -307,16 +331,17 @@ def check_mass_conservation(results, config, verbose=True):
     report_print()
     
     # Calculate integrated fluxes
-    total_qs_ramp = np.sum(results['qs_ramp'][:n_steps])
-    total_qs_crest = np.sum(results['qs_crest'][:n_steps])
-    total_qs_lee = np.sum(results['qs_lee'][:n_steps])
+    total_qs_ramp = np.sum(results['qs_ramp'][flux_start:n_steps])
+    total_qs_crest = np.sum(results['qs_crest'][flux_start:n_steps])
+    total_qs_lee = np.sum(results['qs_lee'][flux_start:n_steps])
     total_aeolian = total_qs_ramp + total_qs_crest + total_qs_lee
     
-    total_qwnet_vol = np.sum([results['qwnet'][i] * dt for i in range(n_steps)])
-    total_qbar_vol = np.sum([results['qbar'][i] * dt for i in range(n_steps)])
-    total_eroded = np.sum(results['eroded_volume'][:n_steps])
+    total_qwnet_vol = np.sum([results['qwnet'][i] * dt for i in range(flux_start, n_steps)])
+    total_qbar_vol = np.sum([results['qbar'][i] * dt for i in range(flux_start, n_steps)])
+    total_eroded = np.sum(results['eroded_volume'][flux_start:n_steps])
     
-    report_print("INTEGRATED FLUXES (over entire simulation):")
+    flux_label = "over simulation (excluding first step)" if skip_first_step else "over entire simulation"
+    report_print(f"INTEGRATED FLUXES ({flux_label}):")
     report_print(f"  Aeolian transport from beach to dune: {total_aeolian:>12.4f} m³/m")
     report_print(f"    - Deposited on ramp:  {total_qs_ramp:>12.4f} m³/m")
     report_print(f"    - Deposited on crest: {total_qs_crest:>12.4f} m³/m")
@@ -330,9 +355,11 @@ def check_mass_conservation(results, config, verbose=True):
     # Δrt*(dfoot - db_old) even without any sediment flux.  This geometric
     # effect is tracked step-by-step and added to the expected beach change so
     # that the beach error reflects only real flux accounting discrepancies.
+    # When skip_first_step=True, the loop starts at i=flux_start so that the
+    # phantom geometry correction is consistent with the flux integration range.
     phantom_correction = 0.0
     vb_prev = initial_vbeach
-    for i in range(n_steps):
+    for i in range(flux_start, n_steps):
         rt_old = results['dune_x'][i]['ramp_toe']
         sl_old = results['dune_x'][i]['shoreline']
         rt_new = results['dune_x'][i + 1]['ramp_toe']
