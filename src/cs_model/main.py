@@ -429,7 +429,7 @@ def _create_evolution_movie(frame_paths, output_path, fps=2):
 
 def run_model(config_path, check_mass_conservation=False,
               plot_evolution=False, plot_evolution_interval=5.0,
-              save_evolution_movie=False):
+              save_evolution_movie=False, skip_first_step_conservation=False):
     """
     Run the CS model using a YAML configuration file.
 
@@ -455,6 +455,10 @@ def run_model(config_path, check_mass_conservation=False,
         simulation ends.  The file is saved as ``<output_base>_evolution.gif``
         alongside the model output.  Requires ``plot_evolution=True`` and
         Pillow (``pip install Pillow``).  Default is False.
+    skip_first_step_conservation : bool, optional
+        If True, the first model time step is excluded from the mass conservation
+        analysis.  Passed directly to ``check_mass_conservation`` when
+        ``check_mass_conservation=True``.  Default is False.
 
     Returns
     -------
@@ -1121,7 +1125,8 @@ def run_model(config_path, check_mass_conservation=False,
     if check_mass_conservation:
         print()  # Empty line for better formatting
         from cs_model.mass_conservation import check_mass_conservation as check_mass
-        mass_check_result = check_mass(results, config, verbose=True)
+        mass_check_result = check_mass(results, config, verbose=True,
+                                       skip_first_step=skip_first_step_conservation)
         
         # Save the full mass conservation report to file
         if mass_check_result:
