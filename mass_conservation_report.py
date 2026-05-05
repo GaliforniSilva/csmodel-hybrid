@@ -62,5 +62,5 @@ if __name__ == "__main__":
         config_path = sys.argv[1]
     
     # Pass --skip-first-step flag from command line if provided
-    _skip = '--skip-first-step' in sys.argv
-    run_with_mass_conservation_report(config_path, skip_first_step=_skip)
+    skip_first_step_flag = '--skip-first-step' in sys.argv
+    run_with_mass_conservation_report(config_path, skip_first_step=skip_first_step_flag)
