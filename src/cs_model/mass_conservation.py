@@ -412,6 +412,51 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     report_print()
     report_print("=" * 80)
 
+    # ------------------------------------------------------------------
+    # TIMESTEP LOCALISATION DIAGNOSTICS (only if conservation fails)
+    # ------------------------------------------------------------------
+    if not conserved and 'conservation' in results:
+        conservation = results['conservation']
+    
+        if 'total_error' in conservation and len(conservation['total_error']) > 1:
+            total_err = np.asarray(conservation['total_error'])
+    
+            # Incremental error per timestep
+            inc_err = np.diff(total_err)
+    
+            # Characteristic scale for "normal" error
+            err_scale = np.median(np.abs(inc_err)) + 1e-14
+    
+            # Flag spikes: > N times typical increment
+            spike_factor = 20.0
+            spike_idx = np.where(np.abs(inc_err) > spike_factor * err_scale)[0]
+    
+            report_print("TIMESTEP DIAGNOSTICS (non-systemic errors):")
+            report_print()
+    
+            if len(spike_idx) == 0:
+                report_print("  No isolated error spikes detected.")
+                report_print("  → Error likely due to systematic drift.")
+            else:
+                report_print(
+                    f"  Detected {len(spike_idx)} timestep(s) with abnormal mass imbalance:"
+                )
+    
+                n_show = min(10, len(spike_idx))
+                for k in spike_idx[:n_show]:
+                    t_h = (k + 1) * dt / 3600
+                    report_print(
+                        f"    Step {k+1:6d} (t = {t_h:8.2f} h): "
+                        f"Δerror = {inc_err[k]:+.3e} m³/m"
+                    )
+    
+                if len(spike_idx) > n_show:
+                    report_print(
+                        f"    ... ({len(spike_idx) - n_show} more not shown)"
+                    )
+    
+            report_print()
+
     return {
         'conserved': conserved,
         'total_error_percent': total_error_percent,
