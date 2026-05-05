@@ -2398,6 +2398,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     def f_lee(ylprim_potential):
                         return lee_volume(ylprim_potential, dune_x, dune_z, betal, substrate_x, substrate_z) - vlee_target
                     
+                    
                     # solve for ylprim_potential that gives the target volume
                     ylprim_new_l = brentq(f_lee, dune_x['lee_crest'] - 200, dune_x['lee_crest']) # find the new lee height using the root finder
                     yl_flat = ylprim_new_l - (dune_z['seaward_crest']-dfoot) / betal # get the new lee foot position assuming no hard structure
