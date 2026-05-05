@@ -1083,6 +1083,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
     """
     Update dune and substrate morphology based on sediment deposition and erosion.
     """
+    
+    #Add volume trackers to make sure we keep conserving mass
+    vdune_beforeloop = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
 
     erod = (qs + ql) * dt
     erod_ramp = qs * dt
@@ -1440,6 +1443,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         #print('Delta Volume Overwash = ', vdune_test_after_overwash - vdune_test_before_overwash)
     # case 2: dune accretion
     
+        vdune_afterero = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
+
     else:
         
         deltavramp_ero = 0.0
@@ -1870,7 +1875,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 
                 # calculate total initial volume above the substrate
         total_volume_ramp = total_volume([dune_x[k] for k in list(dune_x.keys())[1:8]], [dune_z[k] for k in list(dune_z.keys())[1:8]], substrate_x, substrate_z)
-        
+        vdune_afterramp = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
+
         # calculate total initial volume above the substrate
         if dune_x['ramp_dike_temp'] is not None:
             ramp_idx = ['ramp_dike_temp', 'ramp_crest', 'ramp_toe']
@@ -2337,7 +2343,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 dune_x['ramp_toe_temp'] = ys_new_c #TEST
                 dune_z['ramp_toe_temp'] = dfoot #TEST
 
-        
+            vdune_aftercrest = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
+
         ################## update lee ##################
         if qs_lee + vlee_lateral > 0:
             
@@ -2759,6 +2766,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 deltavlee = deltavlee_temp
                 deltavlee_temp = None
                     
+            vdune_afterlee = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
+
     return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall
 
 def subaq(DT, VOLBAR, HO, T, WFALL, SLR, BARNOUR, CB, BACTIVE):

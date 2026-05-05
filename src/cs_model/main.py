@@ -938,7 +938,7 @@ def run_model(config_path, check_mass_conservation=False,
         
         # update values for next iteration
         vramp = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['ramp_crest'], dune_x['ramp_toe'])
-        vdune = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_crest'], dune_x['ramp_toe'])
+        vdune = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
         dune_height_time_series[i] = dune_z['seaward_crest'] - dune_z['ramp_toe']
         dune_foot_time_series[i] = dune_x['ramp_toe']
         total_water_level_time_series[i] = total_water_level
