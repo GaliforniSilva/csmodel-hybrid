@@ -1902,7 +1902,19 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         # Provide safe defaults so the lee-update block (which references
         # s_new_c and ys_new_c) never hits an UnboundLocalError when
         # qs_crest == 0 (no crest accretion this step).
-        s_new_c  = dune_z['seaward_crest'] - dfoot  # current crest height above dfoot
+        #
+        # In the detached-lee state (ramp_crest seaward of seaward_crest and
+        # seaward_crest at/below the dike face) seaward_crest does NOT mark the
+        # true dune crest: it points to where the flat lee segment meets the dike.
+        # The actual crest elevation is stored in ramp_crest in that state,
+        # consistent with the override at lines 1108-1110.
+        if (dune_x['ramp_crest'] > dune_x['seaward_crest']
+                and dune_x['seaward_crest'] <= substrate_x[2]
+                and dune_z['seaward_crest'] <= substrate_z[2]
+                and dune_z['seaward_crest'] < dune_z['ramp_dike_temp']):
+            s_new_c = dune_z['ramp_crest'] - dfoot  # detached: true crest is ramp_crest
+        else:
+            s_new_c = dune_z['seaward_crest'] - dfoot  # normal: seaward_crest is the crest
         ys_new_c = dune_x['ramp_toe']                # current ramp toe position
 
         if qs_crest > 0:
@@ -2757,8 +2769,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         def f_lee(ylprim_potential):
                             return lee_volume(ylprim_potential, dune_x, dune_z, betal, substrate_x, substrate_z) - vlee_target
        
-                        # solve for ylprim_potential that gives the target volume
-                        ylprim_new_l = brentq(f_lee, dune_x['crest_temp'] - 200, dune_x['crest_temp']) # find the new lee height using the root finder
+                        # solve for ylprim_potential that gives the target volume.
+                        # Upper bound: the lee crest can extend up to the dike landward crest
+                        # (substrate_x[2]) when sand fills over the dike, so use that as the
+                        # upper bracket rather than crest_temp (which can be slightly landward).
+                        ub_lee = max(dune_x['crest_temp'], substrate_x[2])
+                        ylprim_new_l = brentq(f_lee, dune_x['crest_temp'] - 200, ub_lee) # find the new lee height using the root finder
                         yl_flat = ylprim_new_l - (dune_z['crest_temp']-dune_z['lee_foot']) / betal # get the new lee foot position assuming no hard structure
       
                         # Update dune profile
