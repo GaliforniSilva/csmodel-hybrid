@@ -2345,6 +2345,25 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
             vdune_aftercrest = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
 
+            # ------------------------------------------------------------------
+            # Phantom-volume correction
+            # When the crest grows taller, the ramp-crest pivot (seaward_crest /
+            # ramp_crest) moves landward by δs/betas, which geometrically extends
+            # the ramp and adds extra dune volume that is not backed by any
+            # sediment flux.  We measure this phantom directly as the difference
+            # between the actual total-volume change and the intended qs_crest,
+            # then subtract it from qs_lee so the cumulative dune volume change
+            # exactly matches the deposited aeolian flux.
+            # If phantom > qs_lee (rare: large crest growth with tiny lee flux)
+            # we clamp qs_lee to zero; the residual phantom for that step is
+            # accumulated into deltavall so it is fed back in subsequent steps.
+            # ------------------------------------------------------------------
+            phantom_crest = (vdune_aftercrest - vdune_afterramp) - qs_crest
+            qs_lee = qs_lee - phantom_crest
+            if qs_lee < 0.0:
+                deltavall -= qs_lee   # carry forward the uncompensated residual
+                qs_lee = 0.0
+
         ################## update lee ##################
         if qs_lee + vlee_lateral > 0:
             
