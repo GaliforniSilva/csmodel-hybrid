@@ -1455,8 +1455,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         # correction below can compare against what the conservation checker
         # records in main.py (which never sees vol_extra or vnourd additions).
         # ------------------------------------------------------------------
-        qs_ramp_0 = qs_ramp
-        qs_crest_0 = qs_crest
+        qs_ramp_0 = qs_ramp    # original ramp flux before vol_extra / vnourd augmentation
+        qs_crest_0 = qs_crest  # original crest flux before vol_extra augmentation
             
         # Initialize the idx for volume calculations
         ramp_idx = ['ramp_crest', 'ramp_toe']
