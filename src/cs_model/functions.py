@@ -1898,7 +1898,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         ################## Crest ##################
         vlee_lateral = 0
         detach_tag = 0
-        
+
+        # Provide safe defaults so the lee-update block (which references
+        # s_new_c and ys_new_c) never hits an UnboundLocalError when
+        # qs_crest == 0 (no crest accretion this step).
+        s_new_c  = dune_z['seaward_crest'] - dfoot  # current crest height above dfoot
+        ys_new_c = dune_x['ramp_toe']                # current ramp toe position
+
         if qs_crest > 0:
             # change in the crest
             deltavcrest = qs_crest # how much sand is deposited on the crest
