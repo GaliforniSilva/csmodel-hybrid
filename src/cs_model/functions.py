@@ -2364,25 +2364,23 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             vdune_aftercrest = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
 
         # ------------------------------------------------------------------
-        # Total phantom-volume correction (ramp + crest phases combined)
+        # Positive-phantom correction (ramp + crest phases combined)
         #
-        # Every geometry update in the ramp and crest sections changes the
-        # dune profile in ways that may not exactly match the intended flux
-        # (qs_ramp_0 + qs_crest_0).  Sources of phantom volume include:
+        # Certain geometry operations in the ramp and crest sections add
+        # volume to the dune profile in excess of the intended flux
+        # (qs_ramp_0 + qs_crest_0).  The main known source is the
+        # ramp-dike "relinking" step where ramp_crest jumps seaward to a
+        # position computed from a simplified slope formula, creating a
+        # volume surplus not backed by any real sediment flux.
         #
-        #   • The ramp-dike "relinking" step where ramp_crest jumps to a
-        #     position computed from a simplified slope formula, creating a
-        #     volume jump not backed by any sediment flux.
-        #   • The crest brentq update where moving seaward_crest landward
-        #     extends the ramp geometrically beyond the intended qs_crest.
-        #   • Any other analytical approximation in the many ramp sub-cases.
+        # We correct only *positive* phantom (geometry added too much):
+        #   total_phantom > 0  →  surplus volume, reduce qs_lee to compensate.
         #
-        # We measure the total phantom directly as the difference between
-        # (a) the actual dune volume change after both ramp and crest
-        #     geometry updates and (b) what those updates were supposed to
-        #     deposit according to the original (pre-augmentation) fluxes.
-        # The residual is subtracted from qs_lee so the final dune volume
-        # change exactly matches qs_ramp_0 + qs_crest_0 + qs_lee.
+        # Negative phantom (geometry removed volume, e.g. during the
+        # detach_tag==1 ramp-crest repositioning) is intentionally NOT
+        # corrected via qs_lee, because doing so would spuriously trigger
+        # the lee update and move lee_crest to the dike top, destroying the
+        # correct detached-lee physics reproduced by main.
         #
         # qs_ramp_0 / qs_crest_0 are saved at the start of this branch,
         # BEFORE vol_extra (line ~1695) and vnourd augment the local copies.
@@ -2393,15 +2391,16 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             dune_x['lee_foot'], dune_x['ramp_toe']
         )
         total_phantom = (vdune_after_ramp_crest - vdune_beforeloop) - (qs_ramp_0 + qs_crest_0)
-        qs_lee = qs_lee - total_phantom
-        if qs_lee < 0.0:
-            # total_phantom exceeded qs_lee (rare: large relinking phantom with
-            # tiny lee flux).  Carry the uncompensated residual forward via
-            # deltavall so it is reused in the next time step rather than being
-            # silently discarded.  deltavall is a running accumulator passed in
-            # and returned by morpho_update; the caller (main.py) propagates it.
-            deltavall -= qs_lee
-            qs_lee = 0.0
+        # Only compensate positive phantom (surplus); negative phantom
+        # (geometry deficit from detach pivot swaps) is left uncorrected
+        # to preserve the detached-lee spreading physics of main.
+        if total_phantom > 0.0:
+            qs_lee = qs_lee - total_phantom
+            if qs_lee < 0.0:
+                # Phantom exceeded available lee flux; carry the residual
+                # forward so it is absorbed in a future step.
+                deltavall -= qs_lee
+                qs_lee = 0.0
 
         ################## update lee ##################
         if qs_lee + vlee_lateral > 0:
