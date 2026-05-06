@@ -1449,6 +1449,14 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
         deltavramp_ero = 0.0
         deltavramp = 0.0
+
+        # ------------------------------------------------------------------
+        # Save the original (pre-augmentation) fluxes so the total phantom
+        # correction below can compare against what the conservation checker
+        # records in main.py (which never sees vol_extra or vnourd additions).
+        # ------------------------------------------------------------------
+        qs_ramp_0 = qs_ramp
+        qs_crest_0 = qs_crest
             
         # Initialize the idx for volume calculations
         ramp_idx = ['ramp_crest', 'ramp_toe']
@@ -2345,24 +2353,45 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
             vdune_aftercrest = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
 
-            # ------------------------------------------------------------------
-            # Phantom-volume correction
-            # When the crest grows taller, the ramp-crest pivot (seaward_crest /
-            # ramp_crest) moves landward by δs/betas, which geometrically extends
-            # the ramp and adds extra dune volume that is not backed by any
-            # sediment flux.  We measure this phantom directly as the difference
-            # between the actual total-volume change and the intended qs_crest,
-            # then subtract it from qs_lee so the cumulative dune volume change
-            # exactly matches the deposited aeolian flux.
-            # If phantom > qs_lee (rare: large crest growth with tiny lee flux)
-            # we clamp qs_lee to zero; the residual phantom for that step is
-            # accumulated into deltavall so it is fed back in subsequent steps.
-            # ------------------------------------------------------------------
-            phantom_crest = (vdune_aftercrest - vdune_afterramp) - qs_crest
-            qs_lee = qs_lee - phantom_crest
-            if qs_lee < 0.0:
-                deltavall -= qs_lee   # carry forward the uncompensated residual
-                qs_lee = 0.0
+        # ------------------------------------------------------------------
+        # Total phantom-volume correction (ramp + crest phases combined)
+        #
+        # Every geometry update in the ramp and crest sections changes the
+        # dune profile in ways that may not exactly match the intended flux
+        # (qs_ramp_0 + qs_crest_0).  Sources of phantom volume include:
+        #
+        #   • The ramp-dike "relinking" step where ramp_crest jumps to a
+        #     position computed from a simplified slope formula, creating a
+        #     volume jump not backed by any sediment flux.
+        #   • The crest brentq update where moving seaward_crest landward
+        #     extends the ramp geometrically beyond the intended qs_crest.
+        #   • Any other analytical approximation in the many ramp sub-cases.
+        #
+        # We measure the total phantom directly as the difference between
+        # (a) the actual dune volume change after both ramp and crest
+        #     geometry updates and (b) what those updates were supposed to
+        #     deposit according to the original (pre-augmentation) fluxes.
+        # The residual is subtracted from qs_lee so the final dune volume
+        # change exactly matches qs_ramp_0 + qs_crest_0 + qs_lee.
+        #
+        # qs_ramp_0 / qs_crest_0 are saved at the start of this branch,
+        # BEFORE vol_extra (line ~1695) and vnourd augment the local copies.
+        # Those internal reclassifications cancel in the total measurement.
+        # ------------------------------------------------------------------
+        vdune_after_ramp_crest = partial_volume(
+            dune_x, dune_z, substrate_x, substrate_z,
+            dune_x['lee_foot'], dune_x['ramp_toe']
+        )
+        total_phantom = (vdune_after_ramp_crest - vdune_beforeloop) - (qs_ramp_0 + qs_crest_0)
+        qs_lee = qs_lee - total_phantom
+        if qs_lee < 0.0:
+            # total_phantom exceeded qs_lee (rare: large relinking phantom with
+            # tiny lee flux).  Carry the uncompensated residual forward via
+            # deltavall so it is reused in the next time step rather than being
+            # silently discarded.  deltavall is a running accumulator passed in
+            # and returned by morpho_update; the caller (main.py) propagates it.
+            deltavall -= qs_lee
+            qs_lee = 0.0
 
         ################## update lee ##################
         if qs_lee + vlee_lateral > 0:

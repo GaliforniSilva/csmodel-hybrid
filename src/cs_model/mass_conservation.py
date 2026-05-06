@@ -399,6 +399,7 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     bar_error   = delta_bar   - exp_bar
 
     def _pct(err, ref):
+        """Return |err| as a percentage of ref, or 0 if ref is non-positive."""
         return 100 * abs(err) / ref if ref > 0 else 0.0
 
     # ------------------------------------------------------------------
