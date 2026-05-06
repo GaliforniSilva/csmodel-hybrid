@@ -1902,20 +1902,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         # Provide safe defaults so the lee-update block (which references
         # s_new_c and ys_new_c) never hits an UnboundLocalError when
         # qs_crest == 0 (no crest accretion this step).
-        #
-        # In the detached-lee state (ramp_crest seaward of seaward_crest and
-        # seaward_crest at/below the dike face) seaward_crest does NOT mark the
-        # true dune crest: it points to where the flat lee segment meets the dike.
-        # The actual crest elevation is stored in ramp_crest in that state,
-        # consistent with the override at lines 1108-1110.
-        if (dune_x['ramp_crest'] > dune_x['seaward_crest']
-                and dune_x['seaward_crest'] <= substrate_x[2]
-                and dune_z['seaward_crest'] <= substrate_z[2]
-                and dune_z['seaward_crest'] < dune_z['ramp_dike_temp']):
-            s_new_c = dune_z['ramp_crest'] - dfoot  # detached: true crest is ramp_crest
-        else:
-            s_new_c = dune_z['seaward_crest'] - dfoot  # normal: seaward_crest is the crest
-        ys_new_c = dune_x['ramp_toe']                # current ramp toe position
+        # s is already detach-aware (set at lines 1102-1110): it equals
+        # ramp_crest - dfoot in the detached-lee state and
+        # seaward_crest - dfoot otherwise.  When qs_crest == 0 the crest
+        # does not change, so s_new_c == s exactly.
+        s_new_c  = s                    # current detach-aware crest height above dfoot
+        ys_new_c = dune_x['ramp_toe']  # current seaward toe position (no change)
 
         if qs_crest > 0:
             # change in the crest
