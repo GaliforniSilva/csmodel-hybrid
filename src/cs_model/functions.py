@@ -2013,6 +2013,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         return V - vcrestnew
                     
                 def f_crest_triangular_detach_flatcrest(s_potential):
+                    # Compute candidate pivot positions for the lee-detached plateau.
                     ystemp = dune_x['crest_temp']
                     yltemp = dune_x['lee_crest']
 
@@ -2023,33 +2024,22 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
                     ylprim_potential = yltemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
 
-                    # local plateau volume (same formula as the non-flatlee detach case)
-                    dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
-                    dune_z_crest = np.array([dune_z['crest_temp'], s_potential + dfoot,
-                                             s_potential + dfoot, dune_z['crest_temp']])
-                    n_per_segment = 100
-                    x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1],
-                                               n_per_segment, endpoint=False)
-                                               for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
-                    z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1],
-                                               n_per_segment, endpoint=False)
-                                               for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
-                    z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
-                    if dune_z['crest_temp'] < substrate_z[2]:
-                        V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
-                    else:
-                        V = (s_potential - (dune_z['crest_temp']-dfoot)) * (ystemp - yltemp)
-
-                    # Lee-slope correction: when lee_crest.x shifts seaward from yltemp
-                    # to ylprim_potential, the lee slope (lee_foot → lee_crest) changes
-                    # volume.  This is NOT captured by V above, so we add it explicitly
-                    # to eliminate the phantom it would otherwise create.
-                    lee_foot_x = dune_x['lee_foot']
-                    V_lee_orig  = 0.5 * (dune_z['lee_crest'] - dfoot) * (yltemp - lee_foot_x)
-                    V_lee_trial = 0.5 * s_potential * (ylprim_potential - lee_foot_x)
-                    delta_V_lee = V_lee_trial - V_lee_orig
-
-                    return V + delta_V_lee - qs_lee
+                    # Build a trial profile with the updated lee-plateau pivots.
+                    # Use V_trial - V_current (delta) rather than V_trial - snapshot so
+                    # that f(a) = -qs_lee exactly at the lower bound, regardless of any
+                    # modifications to dune_z['ramp_dike_temp'] that may have occurred
+                    # between the _pv_before_detach snapshot and this brentq call.
+                    # This guarantees opposite signs for the root finder and correctly
+                    # conserves mass: the plateau volume grows by exactly qs_lee.
+                    dx_trial = {**dune_x, 'lee_crest': ylprim_potential,
+                                          'crest_temp': ysprim_potential}
+                    dz_trial = {**dune_z, 'lee_crest': s_potential + dfoot,
+                                          'crest_temp': s_potential + dfoot}
+                    V_trial = partial_volume(dx_trial, dz_trial, substrate_x, substrate_z,
+                                            dune_x['lee_foot'], dune_x['ramp_toe'])
+                    V_current = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                                              dune_x['lee_foot'], dune_x['ramp_toe'])
+                    return (V_trial - V_current) - qs_lee
 
 
                 def f_crest_triangular_detach_flatlee(s_potential):
@@ -2110,16 +2100,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         dune_x['lee_foot'], dune_x['ramp_toe'])
             
                     #find the height in the top
-                    _a_fl = dune_z['ramp_dike_temp']-dfoot
-                    _b_fl = s_max_triangular+dune_z['ramp_dike_temp']-dfoot
-                    _fa = f_crest_triangular_detach_flatlee(_a_fl)
-                    _fb = f_crest_triangular_detach_flatlee(_b_fl)
-                    import os
-                    if os.environ.get('CS_MODEL_DEBUG'):
-                        print(f"DEBUG flatlee: ramp_crest_x={dune_x['ramp_crest']} ramp_dike_temp_x={dune_x['ramp_dike_temp']} ramp_dike_temp_z={dune_z['ramp_dike_temp']} ramp_crest_z={dune_z['ramp_crest']} ramp_toe_x={dune_x['ramp_toe']}")
-                        print(f"DEBUG flatlee: base={_a_fl} s_max_tri={s_max_triangular} deltavcrest={deltavcrest}")
-                        print(f"DEBUG flatlee: f(a={_a_fl:.4f})={_fa:.6f}  f(b={_b_fl:.4f})={_fb:.6f}")
-                    s_new_c = brentq(f_crest_triangular_detach_flatlee, _a_fl, _b_fl)  # adjust 10 if necessary
+                    s_new_c = brentq(f_crest_triangular_detach_flatlee, dune_z['ramp_dike_temp']-dfoot, s_max_triangular+dune_z['ramp_dike_temp']-dfoot)  # adjust 10 if necessary
                     
                     if dune_z['ramp_dike_temp']-dfoot < s_hs:
                         dune_z['ramp_dike_temp'] = substrate_z[2]
@@ -2134,15 +2115,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     vleenew_detached = partial_volume(dune_x,dune_z,substrate_x,substrate_z,dune_x['lee_crest'],dune_x['seaward_crest']) + qs_lee # new volume of the crest after accretion
                     
                     #s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['seaward_crest']-dfoot) # adjust 10 if necessary
-                    _a_fc = dune_z['lee_crest']-dfoot
-                    _b_fc = dune_z['ramp_dike_temp']-dfoot
-                    _fa_fc = f_crest_triangular_detach_flatcrest(_a_fc)
-                    _fb_fc = f_crest_triangular_detach_flatcrest(_b_fc)
-                    if os.environ.get('CS_MODEL_DEBUG'):
-                        print(f"DEBUG flatcrest: lee_crest_x={dune_x['lee_crest']} crest_temp_x={dune_x['crest_temp']} lee_crest_z={dune_z['lee_crest']} crest_temp_z={dune_z['crest_temp']} ramp_dike_temp_z={dune_z['ramp_dike_temp']}")
-                        print(f"DEBUG flatcrest: qs_lee={qs_lee}")
-                        print(f"DEBUG flatcrest: f(a={_a_fc:.4f})={_fa_fc:.6f}  f(b={_b_fc:.4f})={_fb_fc:.6f}")
-                    s_new_clee = brentq(f_crest_triangular_detach_flatcrest, _a_fc, _b_fc) # adjust 10 if necessary
+                    s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['ramp_dike_temp']-dfoot) # adjust 10 if necessary
                     qs_lee = 0
 
                     #vcrestnew = vcrestnew + qs_lee #in this case makes the lee deposit on the top as well
