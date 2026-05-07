@@ -1095,6 +1095,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
     # one individually.
     qs_ramp_0_global = qs_ramp
     qs_crest_0_global = qs_crest
+    qs_lee_0_global = qs_lee   # original lee flux from deposition_dune (for beach accounting)
 
     erod = (qs + ql) * dt
     erod_ramp = qs * dt
@@ -2865,7 +2866,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         - qs_crest_0_global
     )
 
-    return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall, qs_lee_effective
+    return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall, qs_lee_effective, qs_lee_0_global
 
 def subaq(DT, VOLBAR, HO, T, WFALL, SLR, BARNOUR, CB, BACTIVE):
     # Empirical coefficients

@@ -605,6 +605,7 @@ def run_model(config_path, check_mass_conservation=False,
         'volbar': [],
         'qs_crest': [],
         'qs_lee': [],
+        'qs_lee_effective': [],
         'qs_ramp': [],
         'qwnet': [],
         'qbar': [],
@@ -924,7 +925,7 @@ def run_model(config_path, check_mass_conservation=False,
             print(i)
             
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
-        dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall, qs_lee_effective = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)
+        dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall, qs_lee_effective, qs_lee_orig = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)
 
         ######## VEGETATION GROWTH UPDATE #########
             # update vegetation parameters
@@ -978,7 +979,8 @@ def run_model(config_path, check_mass_conservation=False,
         fluxes = {
             'qs_ramp': qs_ramp,
             'qs_crest': qs_crest,
-            'qs_lee': qs_lee_effective,
+            'qs_lee': qs_lee_orig,
+            'qs_lee_effective': qs_lee_effective,
             'qwnet': qwnet,
             'qbar': qbar,
             'eroded_volume': deltavramp_ero
@@ -1018,7 +1020,8 @@ def run_model(config_path, check_mass_conservation=False,
         results['rhov_df2'].append(rhov_df2)
         results['volbar'].append(volbar)
         results['qs_crest'].append(qs_crest)
-        results['qs_lee'].append(qs_lee_effective)
+        results['qs_lee'].append(qs_lee_orig)
+        results['qs_lee_effective'].append(qs_lee_effective)
         results['qs_ramp'].append(qs_ramp)
         results['qwnet'].append(qwnet)
         results['qbar'].append(qbar)
