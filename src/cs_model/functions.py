@@ -1087,6 +1087,15 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
     #Add volume trackers to make sure we keep conserving mass
     vdune_beforeloop = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
 
+    # Save the original aeolian fluxes as seen by main.py (before any branch-
+    # internal augmentation such as vol_extra or vnourd).  These are used at
+    # the very end to derive qs_lee_effective so that the conservation checker
+    # can account for all per-step phantom sources (vlee_lateral, negative
+    # phantom events, reconnection jumps, etc.) without needing to track each
+    # one individually.
+    qs_ramp_0_global = qs_ramp
+    qs_crest_0_global = qs_crest
+
     erod = (qs + ql) * dt
     erod_ramp = qs * dt
     erod_overwash = ql * dt
@@ -2830,7 +2839,33 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     
             vdune_afterlee = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
 
-    return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall
+    # ------------------------------------------------------------------
+    # Compute qs_lee_effective: the residual aeolian flux assigned to the
+    # lee zone so that the recorded fluxes exactly match the geometric
+    # volume change measured by the conservation checker.
+    #
+    # By construction:
+    #   qs_ramp_0_global + qs_crest_0_global + qs_lee_effective - deltavramp_ero
+    #   == vdune_final - vdune_beforeloop
+    #
+    # This absorbs all per-step phantom sources into qs_lee_effective:
+    #   • vlee_lateral (crest overflow deposited on the lee side)
+    #   • residual ramp/crest geometric phantom not cancelled by the
+    #     positive-phantom correction (including negative-phantom events
+    #     during storms and reconnection jumps)
+    # ------------------------------------------------------------------
+    vdune_final = partial_volume(
+        dune_x, dune_z, substrate_x, substrate_z,
+        dune_x['lee_foot'], dune_x['ramp_toe']
+    )
+    qs_lee_effective = (
+        vdune_final - vdune_beforeloop
+        + deltavramp_ero
+        - qs_ramp_0_global
+        - qs_crest_0_global
+    )
+
+    return dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall, qs_lee_effective
 
 def subaq(DT, VOLBAR, HO, T, WFALL, SLR, BARNOUR, CB, BACTIVE):
     # Empirical coefficients
