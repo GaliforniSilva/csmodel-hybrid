@@ -2078,11 +2078,11 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     s_max_triangular = (betal * betas * (dune_x['ramp_crest'] - dune_x['ramp_dike_temp'])) / (betal + betas)
                     vcrest_triangular = 0.5 * (dune_x['ramp_crest'] - dune_x['ramp_dike_temp']) * s_max_triangular #max volume for triangular shape
             
-                    #find the height in the top
-                    s_new_c = brentq(f_crest_triangular_detach_flatlee, dune_z['ramp_dike_temp']-dfoot, s_max_triangular+dune_z['ramp_dike_temp']-dfoot)  # adjust 10 if necessary
-                    
                     if dune_z['ramp_dike_temp']-dfoot < s_hs:
                         dune_z['ramp_dike_temp'] = substrate_z[2]
+
+                    #find the height in the top
+                    s_new_c = brentq(f_crest_triangular_detach_flatlee, dune_z['ramp_dike_temp']-dfoot, s_max_triangular+dune_z['ramp_dike_temp']-dfoot)  # adjust 10 if necessary
                     
                     # Calculate corresponding pivot points
                     ysprim_new_c = dune_x['ramp_crest'] - (s_new_c - (dune_z['ramp_dike_temp']-dfoot)) / betas
