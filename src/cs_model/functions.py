@@ -1449,14 +1449,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
         deltavramp_ero = 0.0
         deltavramp = 0.0
-
-        # ------------------------------------------------------------------
-        # Save the original (pre-augmentation) fluxes so the total phantom
-        # correction below can compare against what the conservation checker
-        # records in main.py (which never sees vol_extra or vnourd additions).
-        # ------------------------------------------------------------------
-        qs_ramp_0 = qs_ramp    # original ramp flux before vol_extra / vnourd augmentation
-        qs_crest_0 = qs_crest  # original crest flux before vol_extra augmentation
             
         # Initialize the idx for volume calculations
         ramp_idx = ['ramp_crest', 'ramp_toe']
@@ -1898,17 +1890,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         ################## Crest ##################
         vlee_lateral = 0
         detach_tag = 0
-
-        # Provide safe defaults so the lee-update block (which references
-        # s_new_c and ys_new_c) never hits an UnboundLocalError when
-        # qs_crest == 0 (no crest accretion this step).
-        # s is already detach-aware (set at lines 1102-1110): it equals
-        # ramp_crest - dfoot in the detached-lee state and
-        # seaward_crest - dfoot otherwise.  When qs_crest == 0 the crest
-        # does not change, so s_new_c == s exactly.
-        s_new_c  = s                    # current detach-aware crest height above dfoot
-        ys_new_c = dune_x['ramp_toe']  # current seaward toe position (no change)
-
+        
         if qs_crest > 0:
             # change in the crest
             deltavcrest = qs_crest # how much sand is deposited on the crest
@@ -2013,69 +1995,74 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                         return V - vcrestnew
                     
                 def f_crest_triangular_detach_flatcrest(s_potential):
-                    # Compute candidate pivot positions for the lee-detached plateau.
-                    ystemp = dune_x['crest_temp']
-                    yltemp = dune_x['lee_crest']
-
-                    if s_potential < substrate_z[2]-dfoot and dune_z['crest_temp'] < substrate_z[2]:
+        
+                    ystemp = dune_x['crest_temp'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block
+                    #yltemp = dune_x['crest_temp']
+                    yltemp = dune_x['lee_crest'] # fixed at dike position
+        
+                    if s_potential<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                         ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
                     else:
                         ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
 
                     ylprim_potential = yltemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
-
-                    # Build a trial profile with the updated lee-plateau pivots.
-                    # Use V_trial - V_current (delta) rather than V_trial - snapshot so
-                    # that f(a) = -qs_lee exactly at the lower bound, regardless of any
-                    # modifications to dune_z['ramp_dike_temp'] that may have occurred
-                    # between the _pv_before_detach snapshot and this brentq call.
-                    # This guarantees opposite signs for the root finder and correctly
-                    # conserves mass: the plateau volume grows by exactly qs_lee.
-                    dx_trial = {**dune_x, 'lee_crest': ylprim_potential,
-                                          'crest_temp': ysprim_potential}
-                    dz_trial = {**dune_z, 'lee_crest': s_potential + dfoot,
-                                          'crest_temp': s_potential + dfoot}
-                    V_trial = partial_volume(dx_trial, dz_trial, substrate_x, substrate_z,
-                                            dune_x['lee_foot'], dune_x['ramp_toe'])
-                    V_current = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
-                                              dune_x['lee_foot'], dune_x['ramp_toe'])
-                    return (V_trial - V_current) - qs_lee
-
-
-                def f_crest_triangular_detach_flatlee(s_potential):
-                    ystemp = dune_x['ramp_crest']
-                    yltemp = dune_x['ramp_dike_temp']
-                    base   = dune_z['ramp_dike_temp'] - dfoot
-
-                    ysprim_potential = ystemp - ((s_potential - base) / betas)
-                    ylprim_potential = yltemp + ((s_potential - base) / betal)
-
-                    # Local bump volume (triangular/trapezoidal region between the
-                    # current ramp_dike_temp/ramp_crest base and the trial top):
+            
+                    # linear crest line: from (ylprim_potential, s_potential) to (ysprim_potential, s_potential)
                     dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
-                    dune_z_crest = np.array([dune_z['ramp_dike_temp'], s_potential + dfoot,
-                                             s_potential + dfoot, dune_z['ramp_dike_temp']])
-                    n_per_segment = 100
-                    x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1],
-                                               n_per_segment, endpoint=False)
-                                               for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
-                    z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1],
-                                               n_per_segment, endpoint=False)
-                                               for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
-                    V_bump = trapezoid_positive(z_dense - dune_z['ramp_dike_temp'], x_dense)
+                    dune_z_crest = np.array([0, s_potential-(dune_z['crest_temp']-dfoot), s_potential-(dune_z['crest_temp']-dfoot), 0])+substrate_z[1]
+            
+                    n_per_segment = 100  # how many points per segment
+                    x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
+                    z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
+            
+                    # substrate under crest
+                    z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
+                    
+                    if dune_z['crest_temp']<substrate_z[2]:
+                        # volume between crest line and substrate
+                        V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
+                    else:
+                        V = (s_potential-(dune_z['crest_temp']-dfoot))*(ystemp-yltemp)
+                    #if s_potential == s:
+                    #    return -vcrestnew
+                    #else:
+                    return V - qs_lee
+                
+                
+                def f_crest_triangular_detach_flatlee(s_potential):
+        
+                    ystemp = dune_x['ramp_crest'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block. In this case the seaward crest is moved backwards because of the detached
+                    yltemp = dune_x['ramp_dike_temp']
+                    #yltemp = substrate_x[2] # fixed at dike position
+        
+                    #ysprim_potential = ystemp - ((s_potential-s)/betas)
+                    #ylprim_potential = yltemp + ((s_potential-s)/betal)
+                    
+                
+                    ysprim_potential = ystemp - ((s_potential-(dune_z['ramp_dike_temp']-dfoot))/betas)
+                    ylprim_potential = yltemp + ((s_potential-(dune_z['ramp_dike_temp']-dfoot))/betal)
+                    
+                    # linear crest line: from (ylprim_potential, s_potential) to (ysprim_potential, s_potential)
+                    dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
+                    #dune_z_crest = np.array([s + dfoot, s_potential + dfoot, s_potential + dfoot, s + dfoot])
+                    dune_z_crest = np.array([dune_z['ramp_dike_temp'], s_potential + dfoot, s_potential + dfoot, dune_z['ramp_dike_temp']])
 
-                    # Seaward-ramp correction: when ramp_crest.x shifts landward from
-                    # ystemp to ysprim_potential (and its elevation rises), the seaward
-                    # ramp (ramp_crest → ramp_toe) changes volume.  This change is NOT
-                    # captured by V_bump, so we add it analytically to eliminate the
-                    # systematic phantom.  Using the triangular approximation (substrate
-                    # flat at dfoot under the ramp) is accurate for typical geometries.
-                    ramp_toe_x   = dune_x['ramp_toe']
-                    V_ramp_orig  = 0.5 * base * (ramp_toe_x - ystemp)
-                    V_ramp_trial = 0.5 * s_potential * (ramp_toe_x - ysprim_potential)
-                    delta_V_ramp = V_ramp_trial - V_ramp_orig
+                    n_per_segment = 100  # how many points per segment
+                    x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
+                    z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
+            
+                    # substrate under crest
+                    z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
+            
+                    # volume between crest line and substrate
+                    z_base = dune_z['ramp_dike_temp']
+                    #V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
+                    V = trapezoid_positive(z_dense - z_base, x_dense)
 
-                    return V_bump + delta_V_ramp - deltavcrest
+#                    if s_potential == s:
+#                        return -vcrestnew
+#                    else:
+                    return V - deltavcrest
                 
                 # check detached lee side
                 if dune_x['crest_temp'] > dune_x['lee_crest'] and dune_z['crest_temp'] == dune_z['lee_crest'] and dune_z['lee_crest'] < dune_z['ramp_dike_temp']: #substrate_z[2]: #detached with flat crest behind and dune_x['lee_crest'] <= substrate_x[2]
@@ -2090,14 +2077,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     # calculate maximum volume up till the crest becomes triangular when padding the substrate (when ysprim=ylprim)
                     s_max_triangular = (betal * betas * (dune_x['ramp_crest'] - dune_x['ramp_dike_temp'])) / (betal + betas)
                     vcrest_triangular = 0.5 * (dune_x['ramp_crest'] - dune_x['ramp_dike_temp']) * s_max_triangular #max volume for triangular shape
-
-                    # Snapshot the full dune partial-volume before any pivot changes.
-                    # Both Brent solves below reference this so they can target exact
-                    # increments measured by the same metric as the phantom-correction
-                    # check (partial_volume over [lee_foot, ramp_toe]).
-                    _pv_before_detach = partial_volume(
-                        dune_x, dune_z, substrate_x, substrate_z,
-                        dune_x['lee_foot'], dune_x['ramp_toe'])
             
                     #find the height in the top
                     s_new_c = brentq(f_crest_triangular_detach_flatlee, dune_z['ramp_dike_temp']-dfoot, s_max_triangular+dune_z['ramp_dike_temp']-dfoot)  # adjust 10 if necessary
@@ -2115,8 +2094,21 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     vleenew_detached = partial_volume(dune_x,dune_z,substrate_x,substrate_z,dune_x['lee_crest'],dune_x['seaward_crest']) + qs_lee # new volume of the crest after accretion
                     
                     #s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['seaward_crest']-dfoot) # adjust 10 if necessary
-                    s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, dune_z['ramp_dike_temp']-dfoot) # adjust 10 if necessary
-                    qs_lee = 0
+                    # Guard against bracket failure when qs_lee exceeds the maximum
+                    # plateau capacity.  Evaluate f at the upper bound; if it is still
+                    # negative the plateau cannot hold all of qs_lee: saturate at the
+                    # maximum height and carry the unsatisfied volume forward in qs_lee
+                    # so it is absorbed by the regular lee-slope update downstream.
+                    # This mirrors exactly the same guard used in the overflow case below.
+                    _ub_flatcrest = dune_z['ramp_dike_temp'] - dfoot
+                    _fb_flatcrest = f_crest_triangular_detach_flatcrest(_ub_flatcrest)
+                    if _fb_flatcrest >= 0:
+                        s_new_clee = brentq(f_crest_triangular_detach_flatcrest, dune_z['lee_crest']-dfoot, _ub_flatcrest) # adjust 10 if necessary
+                        qs_lee = 0
+                    else:
+                        # Plateau capacity (V_max) < qs_lee; saturate and carry excess
+                        s_new_clee = _ub_flatcrest
+                        qs_lee = -_fb_flatcrest  # = qs_lee - V_max > 0
 
                     #vcrestnew = vcrestnew + qs_lee #in this case makes the lee deposit on the top as well
                     #qs_lee = 0
@@ -2209,34 +2201,40 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     # update the lee side here already
                     qs_lee = qs_lee + vlee_lateral
                     vlee_lateral = 0
-
-                    # Snapshot full dune partial-volume before any pivot changes
-                    # (same pattern as the non-overflow detach_tag==2 branch above).
-                    _pv_before_detach_tri = partial_volume(
-                        dune_x, dune_z, substrate_x, substrate_z,
-                        dune_x['lee_foot'], dune_x['ramp_toe'])
-
+                    
                     def f_crest_triangular_detach_flatcrest_tri(s_potential):
-                        # Compute candidate pivot positions for the lee-detached plateau.
-                        ystemp = dune_x['crest_temp']
-                        yltemp = dune_x['lee_crest']
-
-                        if s_potential < substrate_z[2]-dfoot and dune_z['crest_temp'] < substrate_z[2]:
+            
+                        ystemp = dune_x['crest_temp'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block
+                        #yltemp = dune_x['crest_temp']
+                        yltemp = dune_x['lee_crest'] # fixed at dike position
+            
+                        if s_potential<substrate_z[2]-dfoot and dune_z['crest_temp']<substrate_z[2]:
                             ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal_hs)
                         else:
                             ysprim_potential = ystemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
 
                         ylprim_potential = yltemp + ((s_potential-(dune_z['crest_temp']-dfoot))/betal)
-
-                        # Build a trial profile and evaluate total dune partial_volume,
-                        # ensuring the Brent solve accounts for the lee-slope contribution.
-                        dx_trial = {**dune_x, 'lee_crest':  ylprim_potential,
-                                              'crest_temp': ysprim_potential}
-                        dz_trial = {**dune_z, 'lee_crest':  s_potential + dfoot,
-                                              'crest_temp': s_potential + dfoot}
-                        V = partial_volume(dx_trial, dz_trial, substrate_x, substrate_z,
-                                           dune_x['lee_foot'], dune_x['ramp_toe'])
-                        return V - (_pv_before_detach_tri + qs_lee)
+                
+                        # linear crest line: from (ylprim_potential, s_potential) to (ysprim_potential, s_potential)
+                        dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
+                        dune_z_crest = np.array([0, s_potential-(dune_z['crest_temp']-dfoot), s_potential-(dune_z['crest_temp']-dfoot), 0])+substrate_z[1]
+                
+                        n_per_segment = 100  # how many points per segment
+                        x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
+                        z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
+                
+                        # substrate under crest
+                        z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
+                        
+                        if dune_z['crest_temp']<substrate_z[2]:
+                            # volume between crest line and substrate
+                            V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
+                        else:
+                            V = (s_potential-(dune_z['crest_temp']-dfoot))*(ystemp-yltemp)
+                        #if s_potential == s:
+                        #    return -vcrestnew
+                        #else:
+                        return V - qs_lee
                     
                     maxV = ((dune_z['ramp_dike_temp']-dfoot)-(dune_z['crest_temp']-dfoot))*(dune_x['crest_temp']-dune_x['lee_crest'])
                     
@@ -2359,45 +2357,6 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 dune_z['ramp_toe_temp'] = dfoot #TEST
 
             vdune_aftercrest = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
-
-        # ------------------------------------------------------------------
-        # Positive-phantom correction (ramp + crest phases combined)
-        #
-        # Certain geometry operations in the ramp and crest sections add
-        # volume to the dune profile in excess of the intended flux
-        # (qs_ramp_0 + qs_crest_0).  The main known source is the
-        # ramp-dike "relinking" step where ramp_crest jumps seaward to a
-        # position computed from a simplified slope formula, creating a
-        # volume surplus not backed by any real sediment flux.
-        #
-        # We correct only *positive* phantom (geometry added too much):
-        #   total_phantom > 0  →  surplus volume, reduce qs_lee to compensate.
-        #
-        # Negative phantom (geometry removed volume, e.g. during the
-        # detach_tag==1 ramp-crest repositioning) is intentionally NOT
-        # corrected via qs_lee, because doing so would spuriously trigger
-        # the lee update and move lee_crest to the dike top, destroying the
-        # correct detached-lee physics reproduced by main.
-        #
-        # qs_ramp_0 / qs_crest_0 are saved at the start of this branch,
-        # BEFORE vol_extra (line ~1695) and vnourd augment the local copies.
-        # Those internal reclassifications cancel in the total measurement.
-        # ------------------------------------------------------------------
-        vdune_after_ramp_crest = partial_volume(
-            dune_x, dune_z, substrate_x, substrate_z,
-            dune_x['lee_foot'], dune_x['ramp_toe']
-        )
-        total_phantom = (vdune_after_ramp_crest - vdune_beforeloop) - (qs_ramp_0 + qs_crest_0)
-        # Only compensate positive phantom (surplus); negative phantom
-        # (geometry deficit from detach pivot swaps) is left uncorrected
-        # to preserve the detached-lee spreading physics of main.
-        if total_phantom > 0.0:
-            qs_lee = qs_lee - total_phantom
-            if qs_lee < 0.0:
-                # Phantom exceeded available lee flux; carry the residual
-                # forward so it is absorbed in a future step.
-                deltavall -= qs_lee
-                qs_lee = 0.0
 
         ################## update lee ##################
         if qs_lee + vlee_lateral > 0:
@@ -2758,11 +2717,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                             return lee_volume(ylprim_potential, dune_x, dune_z, betal, substrate_x, substrate_z) - vlee_target
        
                         # solve for ylprim_potential that gives the target volume.
-                        # Upper bound: the lee crest can extend up to the dike landward crest
-                        # (substrate_x[2]) when sand fills over the dike, so use that as the
-                        # upper bracket rather than crest_temp (which can be slightly landward).
-                        ub_lee = max(dune_x['crest_temp'], substrate_x[2])
-                        ylprim_new_l = brentq(f_lee, dune_x['crest_temp'] - 200, ub_lee) # find the new lee height using the root finder
+                        # Upper bound: the lee crest can extend up to substrate_x[2] when
+                        # sand fills over the dike, so use whichever is larger.
+                        _ub_lee = max(dune_x['crest_temp'], substrate_x[2])
+                        ylprim_new_l = brentq(f_lee, dune_x['crest_temp'] - 200, _ub_lee) # find the new lee height using the root finder
                         yl_flat = ylprim_new_l - (dune_z['crest_temp']-dune_z['lee_foot']) / betal # get the new lee foot position assuming no hard structure
       
                         # Update dune profile
