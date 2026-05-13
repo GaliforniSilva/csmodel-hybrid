@@ -530,11 +530,37 @@ def run_model(config_path, check_mass_conservation=False,
     vnourb = np.zeros(time_length_dt) #nourished volume beach
     vnourbar = np.zeros(time_length_dt) #nourished volume bar
 
-    volat = 0
-    volab = 0
-    volad = 0
-    volrb = 0
+    volat = np.asarray(p.volat, dtype=int) # time step when nourishment event k+1 happens
+    volab = np.asarray(p.volab, dtype=float) #beach volume added at event k+1
+    volad = np.asarray(p.volad, dtype=float) # dune volume added at event k+1
+    volrb = np.asarray(p.volrb, dtype=float) #bar volume added at event k+1
+    
+    vanr_discrete = len(volat)
+    beach_rate = getattr(p, "beach_nourishment_rate", 0.0)
+    
+    if beach_rate > 0.0:
+    # Continuous nourishment: one event per timestep
+        volat_cont = np.arange(time_length_dt, dtype=int)
+        volab_cont = np.full(time_length_dt, beach_rate, dtype=float)
+        volad_cont = np.zeros(time_length_dt, dtype=float)
+        volrb_cont = np.zeros(time_length_dt, dtype=float)
+    
+        # Add discrete nourishment on top
+        for k in range(vanr_discrete):
+            t = volat[k]
+            if 0 <= t < time_length_dt:
+                volab_cont[t] += volab[k]
+                volad_cont[t] += volad[k]
+                volrb_cont[t] += volrb[k]
 
+    # Replace nourishment schedule
+    volat = volat_cont
+    volab = volab_cont
+    volad = volad_cont
+    volrb = volrb_cont
+    p.vanr = time_length_dt
+    IV = 1
+    
     barnour = np.ones(time_length_dt)*p.barnour_total
     eroded_volume_time_series = np.zeros(time_length_dt)
     overwash_volume_time_series = np.zeros(time_length_dt)
