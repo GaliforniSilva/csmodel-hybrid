@@ -251,6 +251,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     _x_ramp_toe_lim  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
     _x_shoreline_lim = dune_x_curr.get('shoreline', x_curr[1:].max())
     x_sea_end = _x_shoreline_lim + 0.1 * (_x_shoreline_lim - _x_ramp_toe_lim)
+    x_fill_right = x_lim_right if x_lim_right is not None else x_sea_end
 
     if bc_info is not None:
         twl = bc_info.get('total_water_level')
@@ -264,7 +265,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         x_shoreline = dune_x_curr.get('shoreline', x_curr[1:].max())
 
         # Extended profile grid to include the seaward visual margin
-        _xfill = np.concatenate([xg, [x_sea_end]])
+        _xfill = np.concatenate([xg, [x_fill_right]])
         #_zfill = np.concatenate([z_curr_g, [0.0]])
         _zfill = np.concatenate([z_curr_for_sea, [0.0]])
 
@@ -288,22 +289,22 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 # Overwash: fill from x=0 all the way seaward
                 _z_back = dune_z_curr.get('back_ref',
                                           z_curr_for_sea[0] if len(z_curr_for_sea) > 0 else 0.0)
-                _xfill_ow = np.concatenate([[0.0], xg, [x_sea_end]])
+                _xfill_ow = np.concatenate([[0.0], xg, [x_fill_right]])
                 _zfill_ow = np.concatenate([[_z_back], z_curr_for_sea, [0.0]])
                 ax.fill_between(_xfill_ow, twl, _zfill_ow,
                                 where=(_zfill_ow <= twl),
                                 facecolor=c_sea, alpha=0.50, interpolate=True,
                                 zorder=1, label=f"TWL = {twl:.2f} m (overwash)")
-                ax.plot([0.0, x_sea_end], [twl, twl],
+                ax.plot([0.0, x_fill_right], [twl, twl],
                         color=c_sea, lw=1.8, linestyle=':', zorder=5)
             else:
                 # Find touch point then restrict fill to the seaward side only.
                 _tx_twl = _find_touch_x(_xfill, _zfill, twl)
                 ax.fill_between(_xfill, twl, _zfill,
-                                where=(_zfill <= twl) & (_xfill >= _tx_twl),
+                                where=(_xfill >= _tx_twl),
                                 facecolor=c_sea, alpha=0.50, interpolate=True,
                                 zorder=1, label=f"TWL = {twl:.2f} m")
-                ax.plot([_tx_twl, x_sea_end], [twl, twl],
+                ax.plot([_tx_twl, x_fill_right], [twl, twl],
                         color=c_sea, lw=1.8, linestyle=':', zorder=5)
 
         # BC annotation box (upper-right)
@@ -326,28 +327,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                               edgecolor="0.4",
                               alpha=0.92))
 
-        # Sea fill on the right side: between final profile and TWL.
-        _sea_level = bc_info.get('total_water_level') if bc_info is not None else None
-        if _sea_level is not None:
-            wet = z_curr_for_sea <= _sea_level
-            # Keep only the wet segment connected to the right boundary (seaward side)
-            if wet[-1]:
-                sea_mask = np.zeros_like(wet, dtype=bool)
-                dry_before = np.where(~wet)[0]
-                if dry_before.size > 0:
-                    sea_mask[dry_before[-1] + 1:] = True
-                else:
-                    sea_mask[:] = True
-                ax.fill_between(xg,
-                                z_curr_for_sea,
-                                _sea_level,
-                                where=(sea_mask & (z_curr_for_sea < _sea_level)),
-                                interpolate=True,
-                                facecolor=c_sea,
-                                alpha=0.75,
-                                linewidth=0,
-                                zorder=0)
-                
     # Fill the substrate body with a solid colour to mask any erosion/deposition
     # fills or water fills that extend into the non-erodible dike structure.
     # Only fill up to the dike seaward toe (substrate_x[4] / substrate_z[4]);
