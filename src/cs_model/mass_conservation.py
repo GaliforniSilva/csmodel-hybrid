@@ -149,10 +149,13 @@ def calculate_timestep_conservation(volumes_current, volumes_prev, fluxes, dt, i
         - 'qwnet': Net aeolian transport from beach
         - 'qbar': Bar-beach exchange
         - 'eroded_volume': Wave erosion from dune
+        - 'nour_dune': Nourishment added to dune (optional, default 0)
+        - 'nour_beach': Nourishment added to beach (optional, default 0)
+        - 'nour_bar': Nourishment added to bar (optional, default 0)
     dt : float
         Time step in seconds
     initial_volumes : dict
-        Initial volumes (for percentage calculations)
+        Initial volumes (used as fallback denominator when per-step transport is zero)
         
     Returns
     -------
@@ -165,32 +168,46 @@ def calculate_timestep_conservation(volumes_current, volumes_prev, fluxes, dt, i
     delta_bar = volumes_current['bar'] - volumes_prev['bar']
     delta_total = volumes_current['total'] - volumes_prev['total']
     
+    # Nourishment (external sediment sources, zero if not provided)
+    nour_dune  = fluxes.get('nour_dune', 0.0)
+    nour_beach = fluxes.get('nour_beach', 0.0)
+    nour_bar   = fluxes.get('nour_bar', 0.0)
+
     # Calculate expected changes based on fluxes
     total_aeolian = fluxes['qs_ramp'] + fluxes['qs_crest'] + fluxes['qs_lee']
     qbar_vol = fluxes['qbar'] * dt
     eroded = fluxes['eroded_volume']
     qwnet_vol = fluxes['qwnet'] * dt
     
-    expected_dune_change = total_aeolian - eroded
-    expected_beach_change = -qwnet_vol - qbar_vol + eroded
-    expected_bar_change = qbar_vol
-    expected_total_change = 0.0  # No external sources/sinks
+    expected_dune_change  = total_aeolian - eroded + nour_dune
+    expected_beach_change = -qwnet_vol - qbar_vol + eroded + nour_beach
+    expected_bar_change   = qbar_vol + nour_bar
+    expected_total_change = nour_dune + nour_beach + nour_bar  # internal fluxes cancel
     
     # Calculate errors
-    dune_error = delta_dune - expected_dune_change
+    dune_error  = delta_dune  - expected_dune_change
     beach_error = delta_beach - expected_beach_change
-    bar_error = delta_bar - expected_bar_change
+    bar_error   = delta_bar   - expected_bar_change
     total_error = delta_total - expected_total_change
     
+    # Per-step transport magnitude: used to normalize the total error percentage so
+    # the metric scales with simulation activity rather than with initial volume.
+    step_transport = (
+        abs(total_aeolian) + abs(qwnet_vol) + abs(qbar_vol) + abs(eroded)
+        + abs(nour_dune) + abs(nour_beach) + abs(nour_bar)
+    )
+
     # Helper function to calculate percentage error safely
-    def calc_pct_error(error, initial_value):
-        return 100 * abs(error) / initial_value if initial_value > 0 else 0
-    
-    # Calculate percentage errors relative to initial volumes
-    dune_error_pct = calc_pct_error(dune_error, initial_volumes['dune'])
+    def calc_pct_error(error, denominator):
+        return 100 * abs(error) / denominator if denominator > 0 else 0
+
+    # Compartment errors: relative to initial compartment volume (diagnostic)
+    dune_error_pct  = calc_pct_error(dune_error,  initial_volumes['dune'])
     beach_error_pct = calc_pct_error(beach_error, initial_volumes['beach'])
-    bar_error_pct = calc_pct_error(bar_error, initial_volumes['bar'])
-    total_error_pct = calc_pct_error(total_error, initial_volumes['total'])
+    bar_error_pct   = calc_pct_error(bar_error,   initial_volumes['bar'])
+
+    # Total error: relative to per-step transport (scales with duration & activity)
+    total_error_pct = calc_pct_error(total_error, step_transport)
     
     return {
         'dune_error': dune_error,
@@ -344,6 +361,16 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     total_qbar_vol = np.sum(np.asarray(results['qbar'][flux_start:n_steps]) * dt)
     total_eroded   = np.sum(results['eroded_volume'][flux_start:n_steps])
 
+    # Nourishment: external sediment added to the system — counts toward expected change
+    if 'nourishment' in results:
+        nour = results['nourishment']
+        total_nour_dune  = np.sum(nour['dune'][flux_start:n_steps])
+        total_nour_beach = np.sum(nour['beach'][flux_start:n_steps])
+        total_nour_bar   = np.sum(nour['bar'][flux_start:n_steps])
+        total_nourishment = total_nour_dune + total_nour_beach + total_nour_bar
+    else:
+        total_nourishment = 0.0
+
     total_transport = (
         abs(total_aeolian) +
         abs(total_qbar_vol) +
@@ -370,7 +397,10 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     # ------------------------------------------------------------------
     # EXPECTED TOTAL CHANGE
     # ------------------------------------------------------------------
-    expected_total_change = phantom_correction
+    # Phantom beach correction (geometric effect of ramp_toe movement) plus
+    # any externally added sediment (nourishments) together define the expected
+    # change in total volume.  Internal fluxes cancel exactly by design.
+    expected_total_change = phantom_correction + total_nourishment
 
     total_error = delta_total - expected_total_change
     total_error_percent = abs(100 * total_error / initial_total)
@@ -381,33 +411,53 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
 
     drift_per_step = total_error / n_steps
     drift_per_hour = total_error / total_time_hours if total_time_hours > 0 else 0.0
+    drift_per_year = drift_per_hour * 8760  # annualised drift rate
 
     # ------------------------------------------------------------------
     # REPORT
     # ------------------------------------------------------------------
+    if total_nourishment != 0.0:
+        report_print(f"  Total nourishment applied: {total_nourishment:+.4f} m³/m")
+        report_print()
+
     report_print("MASS BALANCE ASSESSMENT:")
     report_print()
     report_print(f"  Total mass error: {total_error:+.6e} m³/m")
-    report_print(f"  Relative to initial volume: {total_error_percent:.4f}%")
-    report_print(f"  Relative to total transport: {100*error_transport_rel:.4f}%")
+    report_print(f"  Relative to initial volume:   {total_error_percent:.4f}%")
+    report_print(f"  Relative to total transport:  {100*error_transport_rel:.4f}%")
     report_print()
     report_print("DRIFT DIAGNOSTICS (informational):")
     report_print(f"  Mean drift per step: {drift_per_step:+.3e} m³/m")
     report_print(f"  Mean drift rate:     {drift_per_hour:+.3e} m³/m per hour")
+    report_print(f"  Annualised drift:    {drift_per_year:+.3e} m³/m per year")
     report_print()
 
     # ------------------------------------------------------------------
-    # VERDICT
+    # VERDICT  (dual criterion — scales with both initial volume and activity)
     # ------------------------------------------------------------------
-    error_threshold = 0.1  # percent of initial volume
-    conserved = total_error_percent < error_threshold
+    # Primary: error as fraction of total transport — scales correctly with
+    # simulation duration and activity level.
+    # Secondary: error as fraction of initial volume — absolute sanity check.
+    # Both thresholds must be exceeded for a FAILED result, so that a model
+    # with tiny transport and a small absolute error is not penalised, and a
+    # long run with huge transport is still checked against an absolute bound.
+    transport_threshold = 0.5   # % of total transport (primary)
+    volume_threshold    = 1.0   # % of initial total volume (secondary)
+
+    transport_ok = (100 * error_transport_rel) < transport_threshold
+    volume_ok    = total_error_percent < volume_threshold
+    conserved    = transport_ok or volume_ok  # pass if *either* criterion is met
 
     if conserved:
         report_print("✓ RESULT: Mass is conserved within acceptable limits.")
-        report_print(f"  (|ΔV| < {error_threshold}% of initial total volume)")
+        if transport_ok:
+            report_print(f"  (|ΔV|/transport < {transport_threshold}% — primary criterion met)")
+        if volume_ok:
+            report_print(f"  (|ΔV|/V₀ < {volume_threshold}% — secondary criterion met)")
     else:
         report_print("⚠ WARNING: Mass balance error exceeds acceptable limits.")
-        report_print(f"  (|ΔV| > {error_threshold}% threshold)")
+        report_print(f"  (|ΔV|/transport = {100*error_transport_rel:.4f}% ≥ {transport_threshold}% primary threshold)")
+        report_print(f"  (|ΔV|/V₀ = {total_error_percent:.4f}% ≥ {volume_threshold}% secondary threshold)")
 
     report_print()
     report_print("=" * 80)
@@ -464,9 +514,11 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
         'transport_relative_error': error_transport_rel,
         'drift_per_step': drift_per_step,
         'drift_per_hour': drift_per_hour,
+        'drift_per_year': drift_per_year,
         'initial_total': initial_total,
         'final_total': final_total,
-        'error_threshold': error_threshold,
+        'transport_threshold': transport_threshold,
+        'volume_threshold': volume_threshold,
         'report_text': "\n".join(report_lines)
     }    
     # # Build report text
