@@ -252,6 +252,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     _x_shoreline_lim = dune_x_curr.get('shoreline', x_curr[1:].max())
     x_sea_end = _x_shoreline_lim + 0.1 * (_x_shoreline_lim - _x_ramp_toe_lim)
     x_fill_right = x_lim_right if x_lim_right is not None else x_sea_end
+    # Keep sea-fill x coordinates monotonic (required by fill_between) even if a
+    # fixed shared x-limit is smaller than the current profile extent.
+    x_fill_right = max(float(x_fill_right), float(xg[-1]) + 1e-9)
 
     if bc_info is not None:
         twl = bc_info.get('total_water_level')
@@ -349,7 +352,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18),
               ncol=3, fontsize=11, frameon=True)
 
-    ax.set_xlim(left=0, right=(x_lim_right if x_lim_right is not None else x_sea_end))
+    ax.set_xlim(left=0, right=x_fill_right)
     if y_lim_top is not None:
         ax.set_ylim(bottom=0, top=y_lim_top)
     else:
