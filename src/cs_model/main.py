@@ -530,16 +530,16 @@ def run_model(config_path, check_mass_conservation=False,
     vnourb = np.zeros(time_length_dt) #nourished volume beach
     vnourbar = np.zeros(time_length_dt) #nourished volume bar
 
-    volat = np.asarray(p.volat, dtype=int) # time step when nourishment event k+1 happens
-    volab = np.asarray(p.volab, dtype=float) #beach volume added at event k+1
-    volad = np.asarray(p.volad, dtype=float) # dune volume added at event k+1
-    volrb = np.asarray(p.volrb, dtype=float) #bar volume added at event k+1
+    volat = np.asarray(getattr(p, 'volat', []), dtype=int)   # time step when nourishment event k+1 happens
+    volab = np.asarray(getattr(p, 'volab', []), dtype=float)  # beach volume added at event k+1
+    volad = np.asarray(getattr(p, 'volad', []), dtype=float)  # dune volume added at event k+1
+    volrb = np.asarray(getattr(p, 'volrb', []), dtype=float)  # bar volume added at event k+1
     
     vanr_discrete = len(volat)
     beach_rate = getattr(p, "beach_nourishment_rate", 0.0)
     
     if beach_rate > 0.0:
-    # Continuous nourishment: one event per timestep
+        # Continuous nourishment: one event per timestep
         volat_cont = np.arange(time_length_dt, dtype=int)
         volab_cont = np.full(time_length_dt, beach_rate, dtype=float)
         volad_cont = np.zeros(time_length_dt, dtype=float)
@@ -553,13 +553,13 @@ def run_model(config_path, check_mass_conservation=False,
                 volad_cont[t] += volad[k]
                 volrb_cont[t] += volrb[k]
 
-    # Replace nourishment schedule
-    volat = volat_cont
-    volab = volab_cont
-    volad = volad_cont
-    volrb = volrb_cont
-    p.vanr = time_length_dt
-    IV = 1
+        # Replace nourishment schedule
+        volat = volat_cont
+        volab = volab_cont
+        volad = volad_cont
+        volrb = volrb_cont
+        p.vanr = time_length_dt
+        IV = 1
     
     barnour = np.ones(time_length_dt)*p.barnour_total
     eroded_volume_time_series = np.zeros(time_length_dt)
@@ -653,6 +653,12 @@ def run_model(config_path, check_mass_conservation=False,
             'beach_volume': [],
             'bar_volume': [],
             'total_volume': []
+        },
+        # Nourishment volumes applied each timestep (external sediment sources)
+        'nourishment': {
+            'dune': [],
+            'beach': [],
+            'bar': []
         }
     }
 
@@ -692,7 +698,11 @@ def run_model(config_path, check_mass_conservation=False,
     for key in ['dune_error', 'beach_error', 'bar_error', 'total_error',
                 'dune_error_pct', 'beach_error_pct', 'bar_error_pct', 'total_error_pct']:
         results['conservation'][key].append(0.0)
-    
+
+    # Initialize nourishment series with zero for the initial (pre-loop) timestep
+    for key in ['dune', 'beach', 'bar']:
+        results['nourishment'][key].append(0.0)
+
     # Store reference to previous volumes for conservation tracking
     prev_volumes = initial_volumes.copy()
 
@@ -1007,8 +1017,16 @@ def run_model(config_path, check_mass_conservation=False,
             'qs_lee': qs_lee,
             'qwnet': qwnet,
             'qbar': qbar,
-            'eroded_volume': deltavramp_ero
+            'eroded_volume': deltavramp_ero,
+            'nour_dune': vnourd[i],
+            'nour_beach': vnourb[i],
+            'nour_bar': vnourbar[i]
         }
+
+        # Store nourishment volumes applied this timestep
+        results['nourishment']['dune'].append(vnourd[i])
+        results['nourishment']['beach'].append(vnourb[i])
+        results['nourishment']['bar'].append(vnourbar[i])
         
         # Calculate conservation metrics for this timestep
         conservation_metrics = calculate_timestep_conservation(
@@ -1173,10 +1191,12 @@ def run_model(config_path, check_mass_conservation=False,
             print("MASS CONSERVATION SUMMARY")
             print("=" * 80)
             print(f"Status: {'✓ PASSED' if mass_check_result['conserved'] else '⚠ FAILED'}")
-            print(f"Total Volume Error: {mass_check_result['total_error']:+.6f} m³/m ({mass_check_result['total_error_percent']:.6f}%)")
-            print(f"Initial Total Volume: {mass_check_result['initial_total']:.4f} m³/m")
-            print(f"Final Total Volume: {mass_check_result['final_total']:.4f} m³/m")
-            print(f"Error Threshold: {mass_check_result['error_threshold']:.1f}%")
+            print(f"Total Volume Error:         {mass_check_result['total_error']:+.6f} m³/m ({mass_check_result['total_error_percent']:.4f}% of V₀)")
+            print(f"Transport-relative error:   {100*mass_check_result['transport_relative_error']:.4f}%")
+            print(f"Annualised drift rate:       {mass_check_result['drift_per_year']:+.3e} m³/m/year")
+            print(f"Initial Total Volume:        {mass_check_result['initial_total']:.4f} m³/m")
+            print(f"Final Total Volume:          {mass_check_result['final_total']:.4f} m³/m")
+            print(f"Thresholds — transport: {mass_check_result['transport_threshold']}% | volume: {mass_check_result['volume_threshold']}%")
             if mass_check_result['conserved']:
                 print("\n✓ Mass is conserved within acceptable limits!")
             else:
