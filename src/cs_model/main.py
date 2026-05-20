@@ -158,7 +158,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     c_init  = "#1f77b4"   # blue
     c_final = "#d62728"   # red
     c_sub   = "0.3"       # grey
-    c_fill_pos = "#2ca02c"  # green (deposition)
+    c_fill_pos = "#ff7f0e"  # orange (deposition)
     c_fill_neg = "#7b2cbf"  # purple (erosion)
     c_sea   = "#b7dff5"   # soft ocean blue
     c_sand  = "#f4e6c8"   # very light sand
@@ -346,10 +346,12 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         ),
     }
 
-    _veg_lines_labeled = False
+    _veg_cmap = plt.cm.Greens
+    _veg_norm = plt.Normalize(vmin=0.0, vmax=1.0)
+    _any_veg_plotted = False
 
     def _plot_veg_band(x0, x1, cov):
-        nonlocal _veg_lines_labeled
+        nonlocal _any_veg_plotted
         if not np.isfinite(cov) or cov <= 0.0:
             return
         xa, xb = float(min(x0, x1)), float(max(x0, x1))
@@ -362,13 +364,12 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         xv, zv = xv[_ok], zv[_ok]
         if xv.size == 0:
             return
-        veg_color = plt.cm.Greens(0.25 + 0.70 * cov)
-        veg_lw = 0.35 + 2.65 * cov
-        veg_h = 0.08 + 0.55 * cov
-        _label = "Vegetation cover" if not _veg_lines_labeled else None
+        veg_color = _veg_cmap(_veg_norm(cov))
+        veg_lw = 0.5 + 3.0 * cov
+        veg_h = 0.35 + 1.5 * cov
         ax.vlines(xv, zv, zv + veg_h, colors=[veg_color],
-                  linewidth=veg_lw, alpha=0.95, zorder=4.6, label=_label)
-        _veg_lines_labeled = True
+                  linewidth=veg_lw, alpha=0.95, zorder=4.6)
+        _any_veg_plotted = True
 
     _plot_veg_band(
         dune_x_curr.get('ramp_toe', np.nan),
@@ -385,6 +386,15 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         dune_x_curr.get('lee_foot', np.nan),
         _veg_cov['db']
     )
+
+    # Add an inset colorbar for vegetation coverage (shown only when any veg was plotted)
+    if _any_veg_plotted:
+        _sm = plt.cm.ScalarMappable(cmap=_veg_cmap, norm=_veg_norm)
+        _sm.set_array([])
+        _cbar_ax = ax.inset_axes([0.01, 0.01, 0.18, 0.045])
+        _cb = fig.colorbar(_sm, cax=_cbar_ax, orientation='horizontal')
+        _cb.set_label('Vegetation cover', fontsize=8.5)
+        _cb.ax.tick_params(labelsize=8)
 
     # ---- Boundary conditions ----
     # Use surface for water-level fills.
