@@ -194,7 +194,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
     def _fill_profile_points(dune_x, dune_z, start_key=None):
         x, z = _ordered_profile_points(dune_x, dune_z, start_key=start_key)
-        if x.size <= 1:
+        if x.size == 0:
+            return x, z, x, z
+        if x.size == 1:
             return x, z, x, z
 
         n_per_segment = 100
