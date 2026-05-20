@@ -101,7 +101,8 @@ def load_config(config_path):
 
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                            substrate_x, substrate_z, output_base, timestep,
-                           progress_pct, bc_info=None, y_lim_top=None, x_lim_right=None):
+                           progress_pct, bc_info=None, vegetation_info=None,
+                           y_lim_top=None, x_lim_right=None):
     """
     Save a snapshot plot of the current cross-shore profile vs the initial profile.
 
@@ -132,6 +133,12 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         ``runup`` (m), ``total_water_level`` (TWL, m).
         When ``total_water_level`` is present a water-level fill is drawn
         on the seaward side of the profile using the sea colour.
+    vegetation_info : dict, optional
+        Normalized vegetation coverage values (0–1) for three dune zones:
+        ``rhov_df`` (dune front/ramp), ``rhov_dt`` (dune top), and
+        ``rhov_db`` (dune back/lee).  Optional second-species values
+        (``rhov_df2``, ``rhov_dt2``, ``rhov_db2``) are summed and clipped to 1.
+        Rendered as short vertical lines anchored to the current dune profile.
     y_lim_top : float or None, optional
         Fixed upper limit for the y-axis.  When provided, all snapshots share
         the same vertical range so that sudden water-level events do not cause
@@ -314,6 +321,71 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.plot(x_curr, z_curr, color=c_final, lw=2.8, zorder=3,
             label=f"Profile at {progress_pct:.0f}%")
     
+    # ---- Vegetation overlay ----
+    if vegetation_info is None:
+        vegetation_info = {}
+
+    _veg_cov = {
+        'df': float(
+            np.clip(
+                vegetation_info.get('rhov_df', 0.0) + vegetation_info.get('rhov_df2', 0.0),
+                0.0, 1.0
+            )
+        ),
+        'dt': float(
+            np.clip(
+                vegetation_info.get('rhov_dt', 0.0) + vegetation_info.get('rhov_dt2', 0.0),
+                0.0, 1.0
+            )
+        ),
+        'db': float(
+            np.clip(
+                vegetation_info.get('rhov_db', 0.0) + vegetation_info.get('rhov_db2', 0.0),
+                0.0, 1.0
+            )
+        ),
+    }
+
+    _veg_lines_labeled = False
+
+    def _plot_veg_band(x0, x1, cov):
+        nonlocal _veg_lines_labeled
+        if not np.isfinite(cov) or cov <= 0.0:
+            return
+        xa, xb = float(min(x0, x1)), float(max(x0, x1))
+        if xb - xa <= 1e-9:
+            return
+        n_lines = max(4, min(35, int((xb - xa) / 1.0)))
+        xv = np.linspace(xa, xb, n_lines)
+        zv = np.interp(xv, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+        _ok = np.isfinite(zv)
+        xv, zv = xv[_ok], zv[_ok]
+        if xv.size == 0:
+            return
+        veg_color = plt.cm.Greens(0.25 + 0.70 * cov)
+        veg_lw = 0.35 + 2.65 * cov
+        veg_h = 0.08 + 0.55 * cov
+        _label = "Vegetation cover" if not _veg_lines_labeled else None
+        ax.vlines(xv, zv, zv + veg_h, colors=[veg_color],
+                  linewidth=veg_lw, alpha=0.95, zorder=4.6, label=_label)
+        _veg_lines_labeled = True
+
+    _plot_veg_band(
+        dune_x_curr.get('ramp_toe', np.nan),
+        dune_x_curr.get('seaward_crest', dune_x_curr.get('ramp_crest', np.nan)),
+        _veg_cov['df']
+    )
+    _plot_veg_band(
+        dune_x_curr.get('seaward_crest', dune_x_curr.get('ramp_crest', np.nan)),
+        dune_x_curr.get('lee_crest', np.nan),
+        _veg_cov['dt']
+    )
+    _plot_veg_band(
+        dune_x_curr.get('lee_crest', np.nan),
+        dune_x_curr.get('lee_foot', np.nan),
+        _veg_cov['db']
+    )
+
     # ---- Boundary conditions ----
     # Use surface for water-level fills.
     # * Inside the current profile extent   → profile elevation.
@@ -462,7 +534,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
 def _safe_save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                                 substrate_x, substrate_z, output_base, timestep,
-                                progress_pct, bc_info=None, y_lim_top=None, x_lim_right=None):
+                                progress_pct, bc_info=None, vegetation_info=None,
+                                y_lim_top=None, x_lim_right=None):
     """
     Best-effort wrapper around snapshot plotting that keeps plotting isolated
     from live model state and never interrupts the simulation.
@@ -479,6 +552,7 @@ def _safe_save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_cu
             timestep,
             progress_pct,
             bc_info=dict(bc_info) if bc_info is not None else None,
+            vegetation_info=dict(vegetation_info) if vegetation_info is not None else None,
             y_lim_top=y_lim_top,
             x_lim_right=x_lim_right,
         )
@@ -1189,6 +1263,14 @@ def run_model(config_path, check_mass_conservation=False,
                 'wind_speed': wind_speed_time_series[i],
                 'wind_direction': wind_dir_time_series[i],
             }
+            _veg_info = {
+                'rhov_df': rhov_df,
+                'rhov_dt': rhov_dt,
+                'rhov_db': rhov_db,
+                'rhov_df2': rhov_df2 if p.vegcount == 1 else 0.0,
+                'rhov_dt2': rhov_dt2 if p.vegcount == 1 else 0.0,
+                'rhov_db2': rhov_db2 if p.vegcount == 1 else 0.0,
+            }
 
             # ---- Erosion-event snapshots ----
             _is_erosive = (deltavramp_ero > 0)
@@ -1202,7 +1284,8 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    bc_info=_bc_info, vegetation_info=_veg_info,
+                    y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1216,7 +1299,8 @@ def run_model(config_path, check_mass_conservation=False,
                         dune_x, dune_z,
                         substrate_x, substrate_z,
                         _plot_output_base, i + 1, current_pct,
-                        bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                        bc_info=_bc_info, vegetation_info=_veg_info,
+                        y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
                     )
                     if _fp is not None:
                         _plot_saved_frames.append(_fp)
@@ -1228,7 +1312,8 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    bc_info=_bc_info, vegetation_info=_veg_info,
+                    y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1240,7 +1325,8 @@ def run_model(config_path, check_mass_conservation=False,
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    bc_info=_bc_info, vegetation_info=_veg_info,
+                    y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
                 )
                 if _frame_path is not None:
                     _plot_saved_frames.append(_frame_path)
