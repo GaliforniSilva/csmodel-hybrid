@@ -112,7 +112,8 @@ def load_config(config_path):
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                            substrate_x, substrate_z, output_base, timestep,
                            progress_pct, bc_info=None, vegetation_info=None,
-                           y_lim_top=None, x_lim_right=None):
+                           y_lim_top=None, y_lim_bottom=None,
+                           x_lim_right=None, x_lim_left=None):
     """
     Save a snapshot plot of the current cross-shore profile vs the initial profile.
 
@@ -154,11 +155,17 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         the same vertical range so that sudden water-level events do not cause
         the axis to rescale between frames.  When ``None`` (default), the
         upper limit is determined automatically by matplotlib.
+    y_lim_bottom : float or None, optional
+        Fixed lower limit for the y-axis.  When provided, every snapshot uses
+        this value.  When ``None`` (default), 0 is used.
     x_lim_right : float or None, optional
         Fixed right limit for the x-axis.  When provided, every snapshot uses
         this value so GIF frames have consistent horizontal extent.  When
         ``None`` (default) the limit is computed dynamically from the current
         shoreline position.
+    x_lim_left : float or None, optional
+        Fixed left limit for the x-axis.  When provided, every snapshot uses
+        this value.  When ``None`` (default), 0 is used.
 
     Returns
     -------
@@ -827,11 +834,14 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
               loc='upper center', bbox_to_anchor=(0.5, -0.18),
               ncol=3, fontsize=11, frameon=True)
 
-    ax.set_xlim(left=0, right=x_fill_right)
+    _x_left = 0.0 if x_lim_left is None else float(x_lim_left)
+    _y_bottom = 0.0 if y_lim_bottom is None else float(y_lim_bottom)
+
+    ax.set_xlim(left=_x_left, right=x_fill_right)
     if y_lim_top is not None:
-        ax.set_ylim(bottom=0, top=y_lim_top)
+        ax.set_ylim(bottom=_y_bottom, top=y_lim_top)
     else:
-        ax.set_ylim(bottom=0)
+        ax.set_ylim(bottom=_y_bottom)
 
     fig.tight_layout()
 
@@ -846,7 +856,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 def _safe_save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                                 substrate_x, substrate_z, output_base, timestep,
                                 progress_pct, bc_info=None, vegetation_info=None,
-                                y_lim_top=None, x_lim_right=None):
+                                y_lim_top=None, y_lim_bottom=None,
+                                x_lim_right=None, x_lim_left=None):
     """
     Best-effort wrapper around snapshot plotting that keeps plotting isolated
     from live model state and never interrupts the simulation.
@@ -865,7 +876,9 @@ def _safe_save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_cu
             bc_info=dict(bc_info) if bc_info is not None else None,
             vegetation_info=dict(vegetation_info) if vegetation_info is not None else None,
             y_lim_top=y_lim_top,
+            y_lim_bottom=y_lim_bottom,
             x_lim_right=x_lim_right,
+            x_lim_left=x_lim_left,
         )
     except Exception as exc:
         print(
@@ -920,7 +933,8 @@ def run_model(config_path, check_mass_conservation=False,
               plot_evolution=False, plot_evolution_interval=5.0,
               save_evolution_movie=False, skip_first_step_conservation=False,
               manual_plot_limits=False, manual_plot_y_lim_top=None,
-              manual_plot_x_lim_right=None):
+              manual_plot_y_lim_bottom=None, manual_plot_x_lim_right=None,
+              manual_plot_x_lim_left=None):
     """
     Run the CS model using a YAML configuration file.
 
@@ -957,9 +971,17 @@ def run_model(config_path, check_mass_conservation=False,
         Manual upper y-axis limit (meters) for evolution snapshots when
         ``manual_plot_limits=True``. If None, automatic y-limit is kept.
         Default is None.
+    manual_plot_y_lim_bottom : float or None, optional
+        Manual lower y-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, defaults to 0.
+        Default is None.
     manual_plot_x_lim_right : float or None, optional
         Manual right x-axis limit (meters) for evolution snapshots when
         ``manual_plot_limits=True``. If None, automatic x-limit is kept.
+        Default is None.
+    manual_plot_x_lim_left : float or None, optional
+        Manual left x-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, defaults to 0.
         Default is None.
 
     Returns
@@ -1244,19 +1266,41 @@ def run_model(config_path, check_mass_conservation=False,
        # that all GIF frames share the same horizontal extent.  Use 20 %
         # margin beyond the initial shoreline (same shape as the dynamic formula but evaluated only once).
         _plot_x_max = dune_x['shoreline'] + 0.2 * (dune_x['shoreline'] - dune_x['ramp_toe'])
+        _plot_y_min = 0.0
+        _plot_x_min = 0.0
 
         if manual_plot_limits:
             if manual_plot_y_lim_top is not None:
                 if float(manual_plot_y_lim_top) <= 0.0:
                     raise ValueError("manual_plot_y_lim_top must be > 0 when provided.")
                 _plot_y_max = float(manual_plot_y_lim_top)
+            if manual_plot_y_lim_bottom is not None:
+                _plot_y_min = float(manual_plot_y_lim_bottom)
             if manual_plot_x_lim_right is not None:
                 if float(manual_plot_x_lim_right) <= 0.0:
                     raise ValueError("manual_plot_x_lim_right must be > 0 when provided.")
                 _plot_x_max = float(manual_plot_x_lim_right)
-        elif (manual_plot_y_lim_top is not None) or (manual_plot_x_lim_right is not None):
+            if manual_plot_x_lim_left is not None:
+                _plot_x_min = float(manual_plot_x_lim_left)
+
+            if _plot_y_max <= _plot_y_min:
+                raise ValueError(
+                    "manual y-axis limits are invalid: manual_plot_y_lim_top "
+                    "must be greater than manual_plot_y_lim_bottom."
+                )
+            if _plot_x_max <= _plot_x_min:
+                raise ValueError(
+                    "manual x-axis limits are invalid: manual_plot_x_lim_right "
+                    "must be greater than manual_plot_x_lim_left."
+                )
+        elif (
+            (manual_plot_y_lim_top is not None)
+            or (manual_plot_y_lim_bottom is not None)
+            or (manual_plot_x_lim_right is not None)
+            or (manual_plot_x_lim_left is not None)
+        ):
             print(
-                "Warning: manual_plot_y_lim_top/manual_plot_x_lim_right were provided "
+                "Warning: manual plot limits were provided "
                 "but manual_plot_limits=False; automatic plot limits are used."
             )
         
@@ -1624,7 +1668,8 @@ def run_model(config_path, check_mass_conservation=False,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
                     bc_info=_bc_info, vegetation_info=_veg_info,
-                    y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                    x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1639,7 +1684,8 @@ def run_model(config_path, check_mass_conservation=False,
                         substrate_x, substrate_z,
                         _plot_output_base, i + 1, current_pct,
                         bc_info=_bc_info, vegetation_info=_veg_info,
-                        y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                        y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                        x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                     )
                     if _fp is not None:
                         _plot_saved_frames.append(_fp)
@@ -1652,7 +1698,8 @@ def run_model(config_path, check_mass_conservation=False,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
                     bc_info=_bc_info, vegetation_info=_veg_info,
-                    y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                    x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1665,7 +1712,8 @@ def run_model(config_path, check_mass_conservation=False,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
                     bc_info=_bc_info, vegetation_info=_veg_info,
-                    y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                    x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                 )
                 if _frame_path is not None:
                     _plot_saved_frames.append(_frame_path)
