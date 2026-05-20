@@ -640,6 +640,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                     return xa + (level - za) / (zb - za) * (xb - xa)
             return xarr[last]
 
+        _is_overwash = False
         if twl is not None:
             _dune_crest = dune_z_curr.get('seaward_crest')
             _is_overwash = (_dune_crest is not None and twl >= _dune_crest)
@@ -670,6 +671,28 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 ax.plot([_tx_twl, x_fill_right], [twl, twl],
                         color=c_sea, lw=1.8, linestyle=':', zorder=5)
 
+        # Overwash flow arrows (high-water events), aligned with seaward→landward flow.
+        if twl is not None and twl > 5.0:
+            _flow_y = max(0.2, twl - 0.35)
+            if _is_overwash:
+                _flow_x = np.array([0.78, 0.58, 0.38, 0.18]) * x_fill_right
+                _flow_dx = np.full_like(_flow_x, -0.10 * x_fill_right)
+            else:
+                _flow_x = np.array([0.92, 0.80]) * x_fill_right
+                _flow_dx = np.full_like(_flow_x, -0.08 * x_fill_right)
+            ax.quiver(
+                _flow_x, np.full_like(_flow_x, _flow_y),
+                _flow_dx, np.zeros_like(_flow_dx),
+                angles="xy", scale_units="xy", scale=1,
+                width=0.0035, headwidth=5.2, headlength=6.8, headaxislength=5.8,
+                color="#1f78b4", zorder=7,
+            )
+            _flow_label_x = 0.5 * (_flow_x[0] + _flow_x[-1]) + 0.5 * abs(_flow_dx[0])
+            ax.text(
+                _flow_label_x, _flow_y + 0.35, r"$\vec{U}_w$",
+                ha="center", va="bottom", fontsize=11, color="#1f78b4", zorder=8,
+            )
+
         # BC annotation box (upper-right)
         bc_lines = []
         if hs         is not None: bc_lines.append(f"Hs   = {hs:.2f} m")
@@ -689,6 +712,22 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                               facecolor="white",
                               edgecolor="0.4",
                               alpha=0.92))
+
+        # Wind arrow: skip during high-water events to avoid overlap with flow arrows.
+        if wind_speed is not None and (twl is None or twl <= 5.0):
+            _xw0 = 500.0
+            _yw0 = 6.0
+            _wind_mag = 0.12 * x_fill_right
+            ax.quiver(
+                [_xw0], [_yw0], [-_wind_mag], [0.0],
+                angles="xy", scale_units="xy", scale=1,
+                width=0.0046, headwidth=6.2, headlength=7.8, headaxislength=6.8,
+                color="0.2", zorder=9,
+            )
+            ax.text(
+                _xw0 - 0.5 * _wind_mag, _yw0 + 0.65, r"$\vec{U}_{wind}$",
+                ha="center", va="bottom", fontsize=11, color="0.2", zorder=10,
+            )
 
     # Fill the substrate body with a solid colour to mask any erosion/deposition
     # fills or water fills that extend into the non-erodible dike structure.
