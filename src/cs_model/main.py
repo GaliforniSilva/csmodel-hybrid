@@ -53,7 +53,11 @@ import os
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch, Patch
+from matplotlib.legend_handler import HandlerBase
 from matplotlib.lines import Line2D
+from matplotlib.text import Text
+from matplotlib.colors import ListedColormap
 from shapely.geometry import LineString
 from scipy.interpolate import interp1d
 import pandas as pd
@@ -352,7 +356,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         ),
     }
 
-    _veg_cmap = plt.cm.Greens
+    _veg_cmap = ListedColormap(plt.cm.Greens(np.linspace(0.22, 0.98, 256)))
     _veg_norm = plt.Normalize(vmin=0.0, vmax=1.0)
     _any_veg_plotted = False
     _veg_run_key = os.path.abspath(str(output_base))
@@ -363,9 +367,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         if not np.isfinite(cov) or cov <= 0.0:
             return
         xa, xb = float(min(x0, x1)), float(max(x0, x1))
-        if xb - xa <= 1e-9 and band_key == 'db':
-            _dx = max(0.35, 0.015 * (x_curr_fill.max() - x_curr_fill.min()))
-            xa, xb = xa - _dx, xa + _dx
         if xb - xa <= 1e-9:
             return
 
@@ -450,7 +451,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
             ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
             _plotted_in_band = True
 
-        # fallback to ensure visible stems in sparse/edge lee-side cases
+        # fallback to ensure visible stems in sparse/edge cases
         if not _plotted_in_band:
             _n_force = int(np.clip(np.round(5 + 9 * _eff_cov), 4, 16))
             _x_force = np.linspace(xa, xb, _n_force)
@@ -631,21 +632,61 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.tick_params(labelsize=13)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
 
+    class _VegColormapHandler(HandlerBase):
+        """Renders a truncated-Greens strip with ticks/labels below it."""
+        def create_artists(self, legend, orig_handle,
+                           xdescent, ydescent, width, height, fontsize, trans):
+            n = 64
+            bar_y = ydescent + 0.56 * height
+            bar_h = 0.25 * height
+            artists = []
+            for i in range(n):
+                x0 = xdescent + width * i / n
+                color = _veg_cmap(_veg_norm(i / (n - 1)))
+                artists.append(
+                    FancyBboxPatch(
+                        (x0, bar_y), width / n + 0.4, bar_h,
+                        boxstyle="square,pad=0",
+                        linewidth=0, facecolor=color,
+                        transform=trans,
+                    )
+                )
+            for frac, lbl in ((0.0, "0"), (0.5, "0.5"), (1.0, "1")):
+                xt = xdescent + frac * width
+                artists.append(
+                    Line2D(
+                        [xt, xt],
+                        [bar_y - 0.13 * height, bar_y],
+                        color="0.2",
+                        linewidth=0.8,
+                        transform=trans,
+                    )
+                )
+                artists.append(
+                    Text(
+                        xt,
+                        ydescent - 0.03 * height,
+                        lbl,
+                        ha="center",
+                        va="top",
+                        fontsize=fontsize * 0.64,
+                        color="0.15",
+                        transform=trans,
+                    )
+                )
+            return artists
+
     _handles, _labels = ax.get_legend_handles_labels()
-    ax.legend(_handles, _labels,
+    _handler_map = {}
+    if _any_veg_plotted:
+        _veg_proxy = Patch(facecolor='none', edgecolor='none')
+        _handles.append(_veg_proxy)
+        _labels.append('Vegetation cover')
+        _handler_map[_veg_proxy] = _VegColormapHandler()
+
+    ax.legend(_handles, _labels, handler_map=_handler_map,
               loc='upper center', bbox_to_anchor=(0.5, -0.18),
               ncol=3, fontsize=11, frameon=True)
-
-    if _any_veg_plotted:
-        _sm = plt.cm.ScalarMappable(norm=_veg_norm, cmap=_veg_cmap)
-        _sm.set_array([])
-        _cbar = fig.colorbar(_sm, ax=ax, orientation='horizontal',
-                             fraction=0.055, pad=0.16, aspect=36)
-        _cbar.set_ticks([0.0, 0.5, 1.0])
-        _cbar.ax.xaxis.set_ticks_position('bottom')
-        _cbar.ax.xaxis.set_label_position('bottom')
-        _cbar.ax.tick_params(labelsize=10, pad=2)
-        _cbar.set_label("Vegetation cover", fontsize=10)
 
     ax.set_xlim(left=0, right=x_fill_right)
     if y_lim_top is not None:
