@@ -432,6 +432,36 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     return plot_filename
 
 
+def _safe_save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
+                                substrate_x, substrate_z, output_base, timestep,
+                                progress_pct, bc_info=None, y_lim_top=None, x_lim_right=None):
+    """
+    Best-effort wrapper around snapshot plotting that keeps plotting isolated
+    from live model state and never interrupts the simulation.
+    """
+    try:
+        return _save_profile_snapshot(
+            dict(dune_x_init),
+            dict(dune_z_init),
+            dict(dune_x_curr),
+            dict(dune_z_curr),
+            np.asarray(substrate_x, dtype=float).copy(),
+            np.asarray(substrate_z, dtype=float).copy(),
+            output_base,
+            timestep,
+            progress_pct,
+            bc_info=dict(bc_info) if bc_info is not None else None,
+            y_lim_top=y_lim_top,
+            x_lim_right=x_lim_right,
+        )
+    except Exception as exc:
+        print(
+            f"Warning: snapshot plotting failed at timestep {timestep} "
+            f"({progress_pct:.1f}%); continuing without this frame. Error: {exc}"
+        )
+        return None
+
+
 def _create_evolution_movie(frame_paths, output_path, fps=2):
     """
     Create an animated GIF from a list of snapshot PNG files.
@@ -1139,7 +1169,7 @@ def run_model(config_path, check_mass_conservation=False,
                 _erosion_active = True
                 _erosion_event_steps = 1
                 _erosion_mid_saved = False
-                _fp = _save_profile_snapshot(
+                _fp = _safe_save_profile_snapshot(
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
@@ -1153,7 +1183,7 @@ def run_model(config_path, check_mass_conservation=False,
                 if not _erosion_mid_saved and _erosion_event_steps >= 10:
                     # Mid-event snapshot (after at least 10 erosive steps)
                     _erosion_mid_saved = True
-                    _fp = _save_profile_snapshot(
+                    _fp = _safe_save_profile_snapshot(
                         results['dune_x'][0], results['dune_z'][0],
                         dune_x, dune_z,
                         substrate_x, substrate_z,
@@ -1165,7 +1195,7 @@ def run_model(config_path, check_mass_conservation=False,
             elif not _is_erosive and _erosion_active:
                 # Last timestep of the erosion event – save end-of-event snapshot
                 _erosion_active = False
-                _fp = _save_profile_snapshot(
+                _fp = _safe_save_profile_snapshot(
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
@@ -1177,7 +1207,7 @@ def run_model(config_path, check_mass_conservation=False,
 
             # ---- Regular interval snapshots ----
             if current_pct >= _plot_next_pct:
-                _frame_path = _save_profile_snapshot(
+                _frame_path = _safe_save_profile_snapshot(
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
@@ -1206,7 +1236,10 @@ def run_model(config_path, check_mass_conservation=False,
 
     if plot_evolution and save_evolution_movie and _plot_saved_frames:
         movie_path = f"{_plot_output_base}_evolution.gif"
-        _create_evolution_movie(_plot_saved_frames, movie_path)
+        try:
+            _create_evolution_movie(_plot_saved_frames, movie_path)
+        except Exception as exc:
+            print(f"Warning: evolution GIF creation failed; continuing without GIF. Error: {exc}")
     
     ############################################################################
     # MASS CONSERVATION CHECK (if requested)
