@@ -383,8 +383,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
         _target_stems = int(
             np.clip(
-                np.round((xb - xa) * (0.24 + 1.65 * (_eff_cov ** 1.70))),
-                3, 140
+                np.round((xb - xa) * (0.30 + 2.20 * (_eff_cov ** 1.30))),
+                3, 160
             )
         )
         stems_u = np.asarray(_band_state.get("stems_u", np.array([])), dtype=float)
@@ -431,8 +431,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         veg_color = _veg_cmap(_veg_norm(cov))
         veg_lw = 0.42 + 1.55 * cov
         veg_h = 0.33 + 1.65 * cov
-        _bend_scale = max(0.45, 0.070 * (xb - xa)) * (0.80 + 1.10 * _eff_cov)
-        _tip_scale = max(0.12, 0.030 * (xb - xa)) * (0.65 + 0.90 * _eff_cov)
+        _bend_scale = max(0.70, 0.110 * (xb - xa)) * (0.90 + 1.30 * _eff_cov)
+        _tip_scale = max(0.15, 0.035 * (xb - xa)) * (0.70 + 0.95 * _eff_cov)
         _plotted_in_band = False
 
         xv_stem = xa + stems_u * (xb - xa)
@@ -504,7 +504,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     )
     _plot_veg_band(
         _first_finite(dune_x_curr.get('lee_crest'), dune_x_curr.get('crest_temp')),
-        _first_finite(dune_x_curr.get('back_ref'), dune_x_curr.get('lee_foot')),
+        _first_finite(dune_x_curr.get('lee_foot'), dune_x_curr.get('back_ref')),
         _veg_cov['db'],
         'db',
     )
