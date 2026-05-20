@@ -364,14 +364,28 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
     def _plot_veg_band(x0, x1, cov, band_key):
         nonlocal _any_veg_plotted
-        if not np.isfinite(cov) or cov <= 0.0:
+        _COV_ZERO_EPS = 1e-6
+        _COV_PLOT_MIN = 1e-3
+
+        def _clear_band_state(_state):
+            _state["eff_cov"] = 0.0
+            _state["stems_u"] = np.array([], dtype=float)
+            _state["bend_lat"] = np.array([], dtype=float)
+            _state["tip_lat"] = np.array([], dtype=float)
+            _state["h_lat"] = np.array([], dtype=float)
+            _state["cluster_centers"] = np.array([], dtype=float)
+            _state["cluster_ids"] = np.array([], dtype=int)
+
+        _band_state = _veg_run_state.get(band_key, {})
+        if not np.isfinite(cov) or cov <= _COV_ZERO_EPS:
+            _clear_band_state(_band_state)
+            _veg_run_state[band_key] = _band_state
             return
         xa, xb = float(min(x0, x1)), float(max(x0, x1))
         if xb - xa <= 1e-9:
             return
 
         _seed = int(zlib.crc32(f"{_veg_run_key}:{band_key}".encode("utf-8")) & 0xFFFFFFFF)
-        _band_state = _veg_run_state.get(band_key, {})
         _veg_rng = _band_state.get("rng")
         if _veg_rng is None:
             _veg_rng = np.random.default_rng(_seed)
@@ -379,14 +393,22 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
         _eff_cov_prev = float(_band_state.get("eff_cov", cov))
         _eff_cov = float(np.clip(0.82 * _eff_cov_prev + 0.18 * cov, 0.0, 1.0))
+        if _eff_cov < _COV_PLOT_MIN:
+            _clear_band_state(_band_state)
+            _veg_run_state[band_key] = _band_state
+            return
         _band_state["eff_cov"] = _eff_cov
 
         _target_stems = int(
             np.clip(
-                np.round((xb - xa) * (0.30 + 2.20 * (_eff_cov ** 1.30))),
-                3, 160
+                np.round((xb - xa) * (2.20 * (_eff_cov ** 1.30))),
+                0, 160
             )
         )
+        if _target_stems <= 0:
+            _clear_band_state(_band_state)
+            _veg_run_state[band_key] = _band_state
+            return
         _MAX_PATCH = 6  # maximum stems per vegetation patch
         _PATCH_SIG = 0.013 + 0.007 * _eff_cov  # spatial spread of stems within a patch
 
