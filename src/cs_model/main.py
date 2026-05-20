@@ -59,6 +59,7 @@ from scipy.interpolate import interp1d
 import pandas as pd
 import netCDF4 as nc
 import yaml
+import zlib
 from types import SimpleNamespace
 
 
@@ -82,6 +83,10 @@ if project_root not in sys.path:
 from cs_model.functions import *
 from cs_model.mass_conservation import calculate_compartment_volumes, calculate_timestep_conservation
 import pickle
+
+# Persistent vegetation rendering state used by snapshot plotting so stems
+# evolve smoothly from one timestep to the next within the same run.
+_VEG_RENDER_STATE = {}
 
 ############################################################################
 # INITIALIZATION OF PARAMETERS
@@ -350,77 +355,112 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     _veg_cmap = plt.cm.Greens
     _veg_norm = plt.Normalize(vmin=0.0, vmax=1.0)
     _any_veg_plotted = False
-    _veg_rng = np.random.default_rng(int(timestep))
+    _veg_run_key = os.path.abspath(str(output_base))
+    _veg_run_state = _VEG_RENDER_STATE.setdefault(_veg_run_key, {})
 
-    def _plot_veg_band(x0, x1, cov):
+    def _plot_veg_band(x0, x1, cov, band_key):
         nonlocal _any_veg_plotted
         if not np.isfinite(cov) or cov <= 0.0:
             return
         xa, xb = float(min(x0, x1)), float(max(x0, x1))
+        if xb - xa <= 1e-9 and band_key == 'db':
+            _dx = max(0.35, 0.015 * (x_curr_fill.max() - x_curr_fill.min()))
+            xa, xb = xa - _dx, xa + _dx
         if xb - xa <= 1e-9:
             return
-        _anchor_mean = max(2.0, (xb - xa) * (0.08 + 0.90 * cov))
-        n_anchor = int(np.clip(
-            np.round(_anchor_mean + _veg_rng.normal(0.0, 0.35 * _anchor_mean)),
-            2, 50
-        ))
-        xv_anchor = np.linspace(xa, xb, n_anchor)
-        if xv_anchor.size > 1:
-            _dx = (xb - xa) / max(1, (xv_anchor.size - 1))
-            xv_anchor = np.clip(
-                xv_anchor + _veg_rng.uniform(-0.42, 0.42, size=xv_anchor.size) * _dx,
-                xa, xb
-            )
-            xv_anchor.sort()
 
-        zv_anchor = np.interp(xv_anchor, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
-        z_sub_anchor = np.interp(xv_anchor, substrate_x, substrate_z)
-        _ok_anchor = np.isfinite(zv_anchor) & (zv_anchor >= (z_sub_anchor - 2e-2))
-        xv_anchor, zv_anchor = xv_anchor[_ok_anchor], zv_anchor[_ok_anchor]
-        if xv_anchor.size == 0:
-            return
+        _seed = int(zlib.crc32(f"{_veg_run_key}:{band_key}".encode("utf-8")) & 0xFFFFFFFF)
+        _band_state = _veg_run_state.get(band_key, {})
+        _veg_rng = _band_state.get("rng")
+        if _veg_rng is None:
+            _veg_rng = np.random.default_rng(_seed)
+            _band_state["rng"] = _veg_rng
+
+        _eff_cov_prev = float(_band_state.get("eff_cov", cov))
+        _eff_cov = float(np.clip(0.82 * _eff_cov_prev + 0.18 * cov, 0.0, 1.0))
+        _band_state["eff_cov"] = _eff_cov
+
+        _target_stems = int(np.clip(np.round((xb - xa) * (0.9 + 3.7 * _eff_cov)), 6, 180))
+        stems_u = np.asarray(_band_state.get("stems_u", np.array([])), dtype=float)
+        bend_lat = np.asarray(_band_state.get("bend_lat", np.array([])), dtype=float)
+        tip_lat = np.asarray(_band_state.get("tip_lat", np.array([])), dtype=float)
+        h_lat = np.asarray(_band_state.get("h_lat", np.array([])), dtype=float)
+
+        if stems_u.size == 0:
+            _n_cluster = int(np.clip(np.round(1 + (xb - xa) * (0.06 + 0.22 * _eff_cov)), 1, 18))
+            _centers = _veg_rng.uniform(0.05, 0.95, size=_n_cluster)
+            _weights = _veg_rng.uniform(0.6, 1.4, size=_n_cluster)
+            _counts = _veg_rng.multinomial(_target_stems, _weights / _weights.sum())
+            _sigs = _veg_rng.uniform(0.010, 0.038, size=_n_cluster)
+            _all_u = []
+            for _c, _m, _sg in zip(_counts, _centers, _sigs):
+                if _c <= 0:
+                    continue
+                _all_u.append(_veg_rng.normal(_m, _sg, size=_c))
+            stems_u = np.clip(np.concatenate(_all_u) if _all_u else _centers.copy(), 0.0, 1.0)
+            bend_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
+            tip_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
+            h_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
+        else:
+            stems_u = np.clip(stems_u + _veg_rng.normal(0.0, 0.008, size=stems_u.size), 0.0, 1.0)
+            bend_lat = 0.90 * bend_lat + 0.10 * _veg_rng.normal(0.0, 1.0, size=bend_lat.size)
+            tip_lat = 0.90 * tip_lat + 0.10 * _veg_rng.normal(0.0, 1.0, size=tip_lat.size)
+            h_lat = 0.88 * h_lat + 0.12 * _veg_rng.normal(0.0, 1.0, size=h_lat.size)
+
+            if stems_u.size < _target_stems:
+                _n_add = _target_stems - stems_u.size
+                _parents = _veg_rng.choice(stems_u, size=_n_add, replace=True)
+                _new_u = np.clip(_parents + _veg_rng.normal(0.0, 0.02, size=_n_add), 0.0, 1.0)
+                stems_u = np.concatenate([stems_u, _new_u])
+                bend_lat = np.concatenate([bend_lat, _veg_rng.normal(0.0, 1.0, size=_n_add)])
+                tip_lat = np.concatenate([tip_lat, _veg_rng.normal(0.0, 1.0, size=_n_add)])
+                h_lat = np.concatenate([h_lat, _veg_rng.normal(0.0, 1.0, size=_n_add)])
+            elif stems_u.size > _target_stems:
+                _idx_keep = np.linspace(0, stems_u.size - 1, _target_stems).astype(int)
+                stems_u = stems_u[_idx_keep]
+                bend_lat = bend_lat[_idx_keep]
+                tip_lat = tip_lat[_idx_keep]
+                h_lat = h_lat[_idx_keep]
 
         veg_color = _veg_cmap(_veg_norm(cov))
         veg_lw = 0.55 + 1.9 * cov
         veg_h = 0.33 + 1.65 * cov
-        _anchor_spacing = (xb - xa) / max(1, n_anchor - 1)
-        _patch_spread = max(0.08, 0.52 * _anchor_spacing)
-        _bend_scale = max(0.30, 0.045 * (xb - xa)) * (0.65 + 1.00 * cov)
-        _tip_scale = max(0.10, 0.020 * (xb - xa)) * (0.55 + 0.80 * cov)
+        _bend_scale = max(0.45, 0.070 * (xb - xa)) * (0.80 + 1.10 * _eff_cov)
+        _tip_scale = max(0.12, 0.030 * (xb - xa)) * (0.65 + 0.90 * _eff_cov)
         _plotted_in_band = False
 
-        for _xa, _za in zip(xv_anchor, zv_anchor):
-            _n_stems = int(_veg_rng.integers(4, 9))
-            for _ in range(_n_stems):
-                _x = np.clip(_xa + _veg_rng.normal(0.0, _patch_spread), xa, xb)
-                _z = np.interp(_x, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
-                _z_sub = np.interp(_x, substrate_x, substrate_z)
-                if not np.isfinite(_z) or _z < (_z_sub - 1e-6):
-                    continue
+        xv_stem = xa + stems_u * (xb - xa)
+        zv_stem = np.interp(xv_stem, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+        z_sub_stem = np.interp(xv_stem, substrate_x, substrate_z)
+        _ok_stem = np.isfinite(zv_stem) & (zv_stem >= (z_sub_stem - 3e-2))
 
-                _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.28), 0.50, 1.55)
-                _curv = _veg_rng.uniform(-1.0, 1.0) * _bend_scale
-                _tip_j = _veg_rng.uniform(-1.0, 1.0) * _tip_scale
-                _p0x, _p0z = _x, _z
-                _p1x, _p1z = _x + _curv, _z + 0.56 * _h
-                _p2x, _p2z = _x + 0.52 * _curv + _tip_j, _z + _h
-                _t = np.linspace(0.0, 1.0, 9)
-                _omt = 1.0 - _t
-                _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
-                _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
-                ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
-                _plotted_in_band = True
+        for _x, _z, _b, _tj, _hl, _ok in zip(xv_stem, zv_stem, bend_lat, tip_lat, h_lat, _ok_stem):
+            if not _ok:
+                continue
+            _h = veg_h * np.clip(1.0 + 0.22 * _hl, 0.52, 1.62)
+            _curv = float(np.clip(_b, -2.0, 2.0)) * _bend_scale
+            _tip_j = float(np.clip(_tj, -2.0, 2.0)) * _tip_scale
+            _p0x, _p0z = _x, _z
+            _p1x, _p1z = _x + _curv, _z + 0.56 * _h
+            _p2x, _p2z = _x + 0.52 * _curv + _tip_j, _z + _h
+            _t = np.linspace(0.0, 1.0, 9)
+            _omt = 1.0 - _t
+            _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
+            _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
+            ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
+            _plotted_in_band = True
 
         # fallback to ensure visible stems in sparse/edge lee-side cases
-        if not _plotted_in_band and xv_anchor.size > 0:
-            _n_force = int(np.clip(np.round(5 + 10 * cov), 4, 12))
-            _force_idx = np.linspace(0, xv_anchor.size - 1, _n_force).astype(int)
-            for _id in _force_idx:
-                _x = float(xv_anchor[_id])
-                _z = float(zv_anchor[_id])
+        if not _plotted_in_band:
+            _n_force = int(np.clip(np.round(5 + 9 * _eff_cov), 4, 16))
+            _x_force = np.linspace(xa, xb, _n_force)
+            _z_force = np.interp(_x_force, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+            for _x, _z in zip(_x_force, _z_force):
+                if not np.isfinite(_z):
+                    continue
                 _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.20), 0.60, 1.35)
-                _curv = _veg_rng.uniform(-1.0, 1.0) * (1.15 * _bend_scale)
-                _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.9 * _tip_scale)
+                _curv = _veg_rng.uniform(-1.0, 1.0) * (1.20 * _bend_scale)
+                _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.95 * _tip_scale)
                 _p0x, _p0z = _x, _z
                 _p1x, _p1z = _x + _curv, _z + 0.54 * _h
                 _p2x, _p2z = _x + 0.5 * _curv + _tip_j, _z + _h
@@ -431,22 +471,36 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
             _plotted_in_band = True
 
+        _band_state["stems_u"] = stems_u
+        _band_state["bend_lat"] = bend_lat
+        _band_state["tip_lat"] = tip_lat
+        _band_state["h_lat"] = h_lat
+        _veg_run_state[band_key] = _band_state
         _any_veg_plotted = _any_veg_plotted or _plotted_in_band
+
+    def _first_finite(*vals):
+        for _v in vals:
+            if _v is not None and np.isfinite(_v):
+                return float(_v)
+        return np.nan
 
     _plot_veg_band(
         dune_x_curr.get('ramp_toe', np.nan),
         dune_x_curr.get('seaward_crest', dune_x_curr.get('ramp_crest', np.nan)),
-        _veg_cov['df']
+        _veg_cov['df'],
+        'df',
     )
     _plot_veg_band(
         dune_x_curr.get('seaward_crest', dune_x_curr.get('ramp_crest', np.nan)),
         dune_x_curr.get('lee_crest', np.nan),
-        _veg_cov['dt']
+        _veg_cov['dt'],
+        'dt',
     )
     _plot_veg_band(
-        dune_x_curr.get('lee_crest', np.nan),
-        dune_x_curr.get('lee_foot', dune_x_curr.get('back_ref', np.nan)),
-        _veg_cov['db']
+        _first_finite(dune_x_curr.get('lee_crest'), dune_x_curr.get('crest_temp')),
+        _first_finite(dune_x_curr.get('back_ref'), dune_x_curr.get('lee_foot')),
+        _veg_cov['db'],
+        'db',
     )
 
     # ---- Boundary conditions ----
