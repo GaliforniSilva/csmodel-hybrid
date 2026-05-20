@@ -918,7 +918,9 @@ def _create_evolution_movie(frame_paths, output_path, fps=2):
 
 def run_model(config_path, check_mass_conservation=False,
               plot_evolution=False, plot_evolution_interval=5.0,
-              save_evolution_movie=False, skip_first_step_conservation=False):
+              save_evolution_movie=False, skip_first_step_conservation=False,
+              manual_plot_limits=False, manual_plot_y_lim_top=None,
+              manual_plot_x_lim_right=None):
     """
     Run the CS model using a YAML configuration file.
 
@@ -948,6 +950,17 @@ def run_model(config_path, check_mass_conservation=False,
         If True, the first model time step is excluded from the mass conservation
         analysis.  Passed directly to ``check_mass_conservation`` when
         ``check_mass_conservation=True``.  Default is False.
+    manual_plot_limits : bool, optional
+        If True, manually provided plot limits are used for evolution snapshots.
+        If False, automatic limits are used.  Default is False.
+    manual_plot_y_lim_top : float or None, optional
+        Manual upper y-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, automatic y-limit is kept.
+        Default is None.
+    manual_plot_x_lim_right : float or None, optional
+        Manual right x-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, automatic x-limit is kept.
+        Default is None.
 
     Returns
     -------
@@ -1229,8 +1242,23 @@ def run_model(config_path, check_mass_conservation=False,
         _plot_y_max = max(_plot_y_max, (dune_z['seaward_crest'] + 6.0) * 1.15)
         # Pre-compute a fixed x-axis right limit from the initial profile so
        # that all GIF frames share the same horizontal extent.  Use 20 %
-       # margin beyond the initial shoreline (same shape as the dynamic formula but evaluated only once).
+        # margin beyond the initial shoreline (same shape as the dynamic formula but evaluated only once).
         _plot_x_max = dune_x['shoreline'] + 0.2 * (dune_x['shoreline'] - dune_x['ramp_toe'])
+
+        if manual_plot_limits:
+            if manual_plot_y_lim_top is not None:
+                if float(manual_plot_y_lim_top) <= 0.0:
+                    raise ValueError("manual_plot_y_lim_top must be > 0 when provided.")
+                _plot_y_max = float(manual_plot_y_lim_top)
+            if manual_plot_x_lim_right is not None:
+                if float(manual_plot_x_lim_right) <= 0.0:
+                    raise ValueError("manual_plot_x_lim_right must be > 0 when provided.")
+                _plot_x_max = float(manual_plot_x_lim_right)
+        elif (manual_plot_y_lim_top is not None) or (manual_plot_x_lim_right is not None):
+            print(
+                "Warning: manual_plot_y_lim_top/manual_plot_x_lim_right were provided "
+                "but manual_plot_limits=False; automatic plot limits are used."
+            )
         
     ############################################################################
     # START SIMULATION
