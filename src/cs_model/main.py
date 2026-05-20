@@ -381,14 +381,19 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         _eff_cov = float(np.clip(0.82 * _eff_cov_prev + 0.18 * cov, 0.0, 1.0))
         _band_state["eff_cov"] = _eff_cov
 
-        _target_stems = int(np.clip(np.round((xb - xa) * (0.9 + 3.7 * _eff_cov)), 6, 180))
+        _target_stems = int(
+            np.clip(
+                np.round((xb - xa) * (0.24 + 1.65 * (_eff_cov ** 1.70))),
+                3, 140
+            )
+        )
         stems_u = np.asarray(_band_state.get("stems_u", np.array([])), dtype=float)
         bend_lat = np.asarray(_band_state.get("bend_lat", np.array([])), dtype=float)
         tip_lat = np.asarray(_band_state.get("tip_lat", np.array([])), dtype=float)
         h_lat = np.asarray(_band_state.get("h_lat", np.array([])), dtype=float)
 
         if stems_u.size == 0:
-            _n_cluster = int(np.clip(np.round(1 + (xb - xa) * (0.06 + 0.22 * _eff_cov)), 1, 18))
+            _n_cluster = int(np.clip(np.round(1 + (xb - xa) * (0.03 + 0.11 * _eff_cov)), 1, 12))
             _centers = _veg_rng.uniform(0.05, 0.95, size=_n_cluster)
             _weights = _veg_rng.uniform(0.6, 1.4, size=_n_cluster)
             _counts = _veg_rng.multinomial(_target_stems, _weights / _weights.sum())
@@ -424,7 +429,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 h_lat = h_lat[_idx_keep]
 
         veg_color = _veg_cmap(_veg_norm(cov))
-        veg_lw = 0.55 + 1.9 * cov
+        veg_lw = 0.42 + 1.55 * cov
         veg_h = 0.33 + 1.65 * cov
         _bend_scale = max(0.45, 0.070 * (xb - xa)) * (0.80 + 1.10 * _eff_cov)
         _tip_scale = max(0.12, 0.030 * (xb - xa)) * (0.65 + 0.90 * _eff_cov)
@@ -453,7 +458,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
         # fallback to ensure visible stems in sparse/edge cases
         if not _plotted_in_band:
-            _n_force = int(np.clip(np.round(5 + 9 * _eff_cov), 4, 16))
+            _n_force = int(np.clip(np.round(2 + 6 * _eff_cov), 2, 10))
             _x_force = np.linspace(xa, xb, _n_force)
             _z_force = np.interp(_x_force, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
             for _x, _z in zip(_x_force, _z_force):
