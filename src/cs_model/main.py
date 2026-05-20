@@ -53,10 +53,7 @@ import os
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, Patch
-from matplotlib.legend_handler import HandlerBase
 from matplotlib.lines import Line2D
-from matplotlib.text import Text
 from shapely.geometry import LineString
 from scipy.interpolate import interp1d
 import pandas as pd
@@ -362,10 +359,10 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         xa, xb = float(min(x0, x1)), float(max(x0, x1))
         if xb - xa <= 1e-9:
             return
-        _anchor_mean = max(2.0, (xb - xa) * (0.30 + 2.40 * cov))
+        _anchor_mean = max(2.0, (xb - xa) * (0.08 + 0.90 * cov))
         n_anchor = int(np.clip(
-            np.round(_anchor_mean + _veg_rng.normal(0.0, 0.22 * _anchor_mean)),
-            2, 70
+            np.round(_anchor_mean + _veg_rng.normal(0.0, 0.35 * _anchor_mean)),
+            2, 50
         ))
         xv_anchor = np.linspace(xa, xb, n_anchor)
         if xv_anchor.size > 1:
@@ -378,7 +375,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
         zv_anchor = np.interp(xv_anchor, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
         z_sub_anchor = np.interp(xv_anchor, substrate_x, substrate_z)
-        _ok_anchor = np.isfinite(zv_anchor) & (zv_anchor >= (z_sub_anchor - 1e-6))
+        _ok_anchor = np.isfinite(zv_anchor) & (zv_anchor >= (z_sub_anchor - 2e-2))
         xv_anchor, zv_anchor = xv_anchor[_ok_anchor], zv_anchor[_ok_anchor]
         if xv_anchor.size == 0:
             return
@@ -387,7 +384,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         veg_lw = 0.55 + 1.9 * cov
         veg_h = 0.33 + 1.65 * cov
         _anchor_spacing = (xb - xa) / max(1, n_anchor - 1)
-        _patch_spread = max(0.03, 0.25 * _anchor_spacing)
+        _patch_spread = max(0.08, 0.52 * _anchor_spacing)
+        _bend_scale = max(0.30, 0.045 * (xb - xa)) * (0.65 + 1.00 * cov)
+        _tip_scale = max(0.10, 0.020 * (xb - xa)) * (0.55 + 0.80 * cov)
         _plotted_in_band = False
 
         for _xa, _za in zip(xv_anchor, zv_anchor):
@@ -399,9 +398,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 if not np.isfinite(_z) or _z < (_z_sub - 1e-6):
                     continue
 
-                _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.22), 0.55, 1.50)
-                _curv = _veg_rng.uniform(-1.0, 1.0) * (0.05 + 0.16 * cov)
-                _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.015 + 0.08 * cov)
+                _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.28), 0.50, 1.55)
+                _curv = _veg_rng.uniform(-1.0, 1.0) * _bend_scale
+                _tip_j = _veg_rng.uniform(-1.0, 1.0) * _tip_scale
                 _p0x, _p0z = _x, _z
                 _p1x, _p1z = _x + _curv, _z + 0.56 * _h
                 _p2x, _p2z = _x + 0.52 * _curv + _tip_j, _z + _h
@@ -411,6 +410,26 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
                 ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
                 _plotted_in_band = True
+
+        # fallback to ensure visible stems in sparse/edge lee-side cases
+        if not _plotted_in_band and xv_anchor.size > 0:
+            _n_force = int(np.clip(np.round(5 + 10 * cov), 4, 12))
+            _force_idx = np.linspace(0, xv_anchor.size - 1, _n_force).astype(int)
+            for _id in _force_idx:
+                _x = float(xv_anchor[_id])
+                _z = float(zv_anchor[_id])
+                _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.20), 0.60, 1.35)
+                _curv = _veg_rng.uniform(-1.0, 1.0) * (1.15 * _bend_scale)
+                _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.9 * _tip_scale)
+                _p0x, _p0z = _x, _z
+                _p1x, _p1z = _x + _curv, _z + 0.54 * _h
+                _p2x, _p2z = _x + 0.5 * _curv + _tip_j, _z + _h
+                _t = np.linspace(0.0, 1.0, 9)
+                _omt = 1.0 - _t
+                _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
+                _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
+                ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
+            _plotted_in_band = True
 
         _any_veg_plotted = _any_veg_plotted or _plotted_in_band
 
@@ -558,62 +577,21 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.tick_params(labelsize=13)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
 
-    # Build legend – add a gradient strip entry for vegetation when present
-    class _VegColormapHandler(HandlerBase):
-        """Renders a Greens colormap gradient strip as a legend entry."""
-        def create_artists(self, legend, orig_handle,
-                           xdescent, ydescent, width, height, fontsize, trans):
-            n = 64
-            bar_y = ydescent + 0.58 * height
-            bar_h = 0.25 * height
-            artists = []
-            for i in range(n):
-                x0 = xdescent + width * i / n
-                color = _veg_cmap(_veg_norm(i / (n - 1)))
-                artists.append(
-                    FancyBboxPatch(
-                        (x0, bar_y), width / n + 0.5, bar_h,
-                        boxstyle="square,pad=0",
-                        linewidth=0, facecolor=color,
-                        transform=trans,
-                    )
-                )
-            for frac, lbl in ((0.0, "0"), (0.5, "0.5"), (1.0, "1")):
-                xt = xdescent + frac * width
-                artists.append(
-                    Line2D(
-                        [xt, xt],
-                        [bar_y - 0.16 * height, bar_y],
-                        color="0.2",
-                        linewidth=0.8,
-                        transform=trans,
-                    )
-                )
-                artists.append(
-                    Text(
-                        xt,
-                        ydescent + 0.06 * height,
-                        lbl,
-                        ha="center",
-                        va="bottom",
-                        fontsize=fontsize * 0.66,
-                        color="0.15",
-                        transform=trans,
-                    )
-                )
-            return artists
-
     _handles, _labels = ax.get_legend_handles_labels()
-    _handler_map = {}
-    if _any_veg_plotted:
-        _veg_proxy = Patch(facecolor='none', edgecolor='none')
-        _handles.append(_veg_proxy)
-        _labels.append('Vegetation cover')
-        _handler_map[_veg_proxy] = _VegColormapHandler()
-
-    ax.legend(_handles, _labels, handler_map=_handler_map,
+    ax.legend(_handles, _labels,
               loc='upper center', bbox_to_anchor=(0.5, -0.18),
               ncol=3, fontsize=11, frameon=True)
+
+    if _any_veg_plotted:
+        _sm = plt.cm.ScalarMappable(norm=_veg_norm, cmap=_veg_cmap)
+        _sm.set_array([])
+        _cbar = fig.colorbar(_sm, ax=ax, orientation='horizontal',
+                             fraction=0.055, pad=0.16, aspect=36)
+        _cbar.set_ticks([0.0, 0.5, 1.0])
+        _cbar.ax.xaxis.set_ticks_position('bottom')
+        _cbar.ax.xaxis.set_label_position('bottom')
+        _cbar.ax.tick_params(labelsize=10, pad=2)
+        _cbar.set_label("Vegetation cover", fontsize=10)
 
     ax.set_xlim(left=0, right=x_fill_right)
     if y_lim_top is not None:
