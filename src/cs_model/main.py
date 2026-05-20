@@ -387,46 +387,117 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 3, 160
             )
         )
+        _MAX_PATCH = 6  # maximum stems per vegetation patch
+        _PATCH_SIG = 0.013 + 0.007 * _eff_cov  # spatial spread of stems within a patch
+
         stems_u = np.asarray(_band_state.get("stems_u", np.array([])), dtype=float)
         bend_lat = np.asarray(_band_state.get("bend_lat", np.array([])), dtype=float)
         tip_lat = np.asarray(_band_state.get("tip_lat", np.array([])), dtype=float)
         h_lat = np.asarray(_band_state.get("h_lat", np.array([])), dtype=float)
+        cluster_centers = np.asarray(_band_state.get("cluster_centers", np.array([])), dtype=float)
+        cluster_ids = np.asarray(_band_state.get("cluster_ids", np.array([])), dtype=int)
 
         if stems_u.size == 0:
-            _n_cluster = int(np.clip(np.round(1 + (xb - xa) * (0.03 + 0.11 * _eff_cov)), 1, 12))
-            _centers = _veg_rng.uniform(0.05, 0.95, size=_n_cluster)
-            _weights = _veg_rng.uniform(0.6, 1.4, size=_n_cluster)
-            _counts = _veg_rng.multinomial(_target_stems, _weights / _weights.sum())
-            _sigs = _veg_rng.uniform(0.010, 0.038, size=_n_cluster)
-            _all_u = []
-            for _c, _m, _sg in zip(_counts, _centers, _sigs):
-                if _c <= 0:
+            # Need at least enough clusters to hold all stems at max _MAX_PATCH each.
+            _min_clusters = int(np.ceil(_target_stems / _MAX_PATCH))
+            _n_cluster = max(
+                _min_clusters,
+                int(np.clip(np.round(2 + (xb - xa) * (0.06 + 0.14 * _eff_cov)), _min_clusters, 24)),
+            )
+            # Evenly spaced cluster centers with small jitter.
+            _base = np.linspace(0.08, 0.92, _n_cluster)
+            _jitter = _veg_rng.uniform(-0.04, 0.04, size=_n_cluster)
+            cluster_centers = np.clip(_base + _jitter, 0.02, 0.98)
+            # Distribute stems across clusters: round-robin so each gets ≤ _MAX_PATCH.
+            _cluster_counts = np.zeros(_n_cluster, dtype=int)
+            for _si in range(_target_stems):
+                _ci = _si % _n_cluster
+                _cluster_counts[_ci] += 1
+            _all_u, _all_cid = [], []
+            for _ci, (_ctr, _cnt) in enumerate(zip(cluster_centers, _cluster_counts)):
+                if _cnt <= 0:
                     continue
-                _all_u.append(_veg_rng.normal(_m, _sg, size=_c))
-            stems_u = np.clip(np.concatenate(_all_u) if _all_u else _centers.copy(), 0.0, 1.0)
+                _u = np.clip(_veg_rng.normal(_ctr, _PATCH_SIG, size=_cnt), 0.0, 1.0)
+                _all_u.append(_u)
+                _all_cid.extend([_ci] * _cnt)
+            stems_u = np.concatenate(_all_u) if _all_u else cluster_centers[:1].copy()
+            cluster_ids = np.array(_all_cid, dtype=int)
             bend_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
             tip_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
             h_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
         else:
+            # Drift stem positions and shape attributes.
             stems_u = np.clip(stems_u + _veg_rng.normal(0.0, 0.008, size=stems_u.size), 0.0, 1.0)
             bend_lat = 0.90 * bend_lat + 0.10 * _veg_rng.normal(0.0, 1.0, size=bend_lat.size)
             tip_lat = 0.90 * tip_lat + 0.10 * _veg_rng.normal(0.0, 1.0, size=tip_lat.size)
             h_lat = 0.88 * h_lat + 0.12 * _veg_rng.normal(0.0, 1.0, size=h_lat.size)
 
+            # Rebuild cluster_ids if missing (backwards compat or first update).
+            if cluster_centers.size == 0:
+                cluster_centers = stems_u.copy()
+                cluster_ids = np.arange(stems_u.size, dtype=int)
+            _n_cluster = cluster_centers.size
+
             if stems_u.size < _target_stems:
                 _n_add = _target_stems - stems_u.size
-                _parents = _veg_rng.choice(stems_u, size=_n_add, replace=True)
-                _new_u = np.clip(_parents + _veg_rng.normal(0.0, 0.02, size=_n_add), 0.0, 1.0)
-                stems_u = np.concatenate([stems_u, _new_u])
-                bend_lat = np.concatenate([bend_lat, _veg_rng.normal(0.0, 1.0, size=_n_add)])
-                tip_lat = np.concatenate([tip_lat, _veg_rng.normal(0.0, 1.0, size=_n_add)])
-                h_lat = np.concatenate([h_lat, _veg_rng.normal(0.0, 1.0, size=_n_add)])
+                _counts_per = np.bincount(cluster_ids, minlength=_n_cluster)
+                _capacity = np.maximum(0, _MAX_PATCH - _counts_per)
+                # If existing clusters are all full, spawn new ones.
+                if _capacity.sum() < _n_add:
+                    _extra = int(np.ceil((_n_add - _capacity.sum()) / _MAX_PATCH))
+                    _new_ctrs = _veg_rng.uniform(0.05, 0.95, size=_extra)
+                    cluster_centers = np.concatenate([cluster_centers, _new_ctrs])
+                    _capacity = np.concatenate([_capacity, np.full(_extra, _MAX_PATCH, dtype=int)])
+                    _counts_per = np.concatenate([_counts_per, np.zeros(_extra, dtype=int)])
+                    _n_cluster += _extra
+                # Add to least-filled clusters first.
+                _add_counts = np.zeros(_n_cluster, dtype=int)
+                _remaining = _n_add
+                for _ci in np.argsort(_counts_per):
+                    if _remaining <= 0:
+                        break
+                    _give = min(int(_capacity[_ci]), _remaining)
+                    _add_counts[_ci] = _give
+                    _remaining -= _give
+                _new_u_list, _new_cid_list = [], []
+                for _ci, _cnt in enumerate(_add_counts):
+                    if _cnt <= 0:
+                        continue
+                    _u = np.clip(_veg_rng.normal(cluster_centers[_ci], _PATCH_SIG, size=_cnt), 0.0, 1.0)
+                    _new_u_list.append(_u)
+                    _new_cid_list.extend([_ci] * _cnt)
+                if _new_u_list:
+                    _new_u = np.concatenate(_new_u_list)
+                    _new_cid = np.array(_new_cid_list, dtype=int)
+                    stems_u = np.concatenate([stems_u, _new_u])
+                    cluster_ids = np.concatenate([cluster_ids, _new_cid])
+                    bend_lat = np.concatenate([bend_lat, _veg_rng.normal(0.0, 1.0, size=_new_u.size)])
+                    tip_lat = np.concatenate([tip_lat, _veg_rng.normal(0.0, 1.0, size=_new_u.size)])
+                    h_lat = np.concatenate([h_lat, _veg_rng.normal(0.0, 1.0, size=_new_u.size)])
+
             elif stems_u.size > _target_stems:
-                _idx_keep = np.linspace(0, stems_u.size - 1, _target_stems).astype(int)
-                stems_u = stems_u[_idx_keep]
-                bend_lat = bend_lat[_idx_keep]
-                tip_lat = tip_lat[_idx_keep]
-                h_lat = h_lat[_idx_keep]
+                _n_remove = stems_u.size - _target_stems
+                _counts_per = np.bincount(cluster_ids, minlength=_n_cluster)
+                # Remove from most-populated clusters first.
+                _remove_counts = np.zeros(_n_cluster, dtype=int)
+                _remaining = _n_remove
+                for _ci in np.argsort(-_counts_per):
+                    if _remaining <= 0:
+                        break
+                    _take = min(int(_counts_per[_ci]), _remaining)
+                    _remove_counts[_ci] = _take
+                    _remaining -= _take
+                _keep_mask = np.ones(stems_u.size, dtype=bool)
+                for _ci, _cnt in enumerate(_remove_counts):
+                    if _cnt <= 0:
+                        continue
+                    _in_cluster = np.where(cluster_ids == _ci)[0]
+                    _keep_mask[_in_cluster[:_cnt]] = False
+                stems_u = stems_u[_keep_mask]
+                cluster_ids = cluster_ids[_keep_mask]
+                bend_lat = bend_lat[_keep_mask]
+                tip_lat = tip_lat[_keep_mask]
+                h_lat = h_lat[_keep_mask]
 
         veg_color = _veg_cmap(_veg_norm(cov))
         veg_lw = 0.42 + 1.55 * cov
@@ -481,6 +552,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         _band_state["bend_lat"] = bend_lat
         _band_state["tip_lat"] = tip_lat
         _band_state["h_lat"] = h_lat
+        _band_state["cluster_centers"] = cluster_centers
+        _band_state["cluster_ids"] = cluster_ids
         _veg_run_state[band_key] = _band_state
         _any_veg_plotted = _any_veg_plotted or _plotted_in_band
 
