@@ -175,6 +175,13 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         if x.size == 0:
             return x, z
 
+        # Drop any coordinate that is NaN or Inf – a NaN breaks the plotted line.
+        _finite = np.isfinite(x) & np.isfinite(z)
+        keys  = [k for k, ok in zip(keys, _finite) if ok]
+        x, z  = x[_finite], z[_finite]
+        if x.size == 0:
+            return x, z
+
         _present = {key: idx for idx, key in enumerate(keys)}
         if 'crest_temp' in _present and 'seaward_crest' in _present:
             ict, isc = _present['crest_temp'], _present['seaward_crest']
@@ -308,8 +315,24 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
             label=f"Profile at {progress_pct:.0f}%")
     
     # ---- Boundary conditions ----
-    # Use surface that fills NaN gaps with substrate for water-level fills
-    z_curr_for_sea = np.where(np.isfinite(z_curr_fill_g), z_curr_fill_g, z_sub_g)
+    # Use surface for water-level fills.
+    # * Inside the current profile extent   → profile elevation.
+    # * Seaward of the current shoreline    → sea level (0.0).  Using the
+    #   substrate fallback here can produce elevated values in the ocean area
+    #   (substrate extrapolation) which create a blank gap between the sea fill
+    #   and the profile line.
+    # * Landward NaN region (dike interior) → substrate elevation.
+    _x_curr_shore = float(
+        dune_x_curr.get(
+            'shoreline',
+            float(x_curr_fill[-1]) if x_curr_fill.size > 0 else xg_end,
+        )
+    )
+    z_curr_for_sea = np.where(
+        np.isfinite(z_curr_fill_g),
+        z_curr_fill_g,
+        np.where(xg > _x_curr_shore, 0.0, z_sub_g),
+    )
 
     # Compute seaward extent of the sea fill (used for xlim regardless of bc_info)
     _x_ramp_toe_lim  = dune_x_curr.get('ramp_toe', x_curr_fill.max())
@@ -367,8 +390,13 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
             else:
                 # Find touch point then restrict fill to the seaward side only.
                 _tx_twl = _find_touch_x(_xfill, _zfill, twl)
-                ax.fill_between(_xfill, twl, _zfill,
-                                where=(_xfill >= _tx_twl),
+                # Insert the exact touch-point so fill_between starts precisely
+                # at the profile/TWL intersection with no discretisation gap.
+                _ins = int(np.searchsorted(_xfill, _tx_twl))
+                _xfill_i = np.insert(_xfill, _ins, _tx_twl)
+                _zfill_i = np.insert(_zfill, _ins, twl)
+                ax.fill_between(_xfill_i, twl, _zfill_i,
+                                where=(_xfill_i >= _tx_twl),
                                 facecolor=c_sea, alpha=0.50, interpolate=True,
                                 zorder=1, label=f"TWL = {twl:.2f} m")
                 ax.plot([_tx_twl, x_fill_right], [twl, twl],
