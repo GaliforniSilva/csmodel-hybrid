@@ -53,6 +53,8 @@ import os
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch, Patch
+from matplotlib.legend_handler import HandlerBase
 from shapely.geometry import LineString
 from scipy.interpolate import interp1d
 import pandas as pd
@@ -360,7 +362,9 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         n_lines = max(4, min(35, int((xb - xa) / 1.0)))
         xv = np.linspace(xa, xb, n_lines)
         zv = np.interp(xv, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
-        _ok = np.isfinite(zv)
+        z_sub_v = np.interp(xv, substrate_x, substrate_z)
+        # Hide lines whose base sits inside/below the substrate (dike grey zone)
+        _ok = np.isfinite(zv) & (zv > z_sub_v)
         xv, zv = xv[_ok], zv[_ok]
         if xv.size == 0:
             return
@@ -523,7 +527,37 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                  fontsize=14)
     ax.tick_params(labelsize=13)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18),
+
+    # Build legend – add a gradient strip entry for vegetation when present
+    class _VegColormapHandler(HandlerBase):
+        """Renders a Greens colormap gradient strip as a legend entry."""
+        def create_artists(self, legend, orig_handle,
+                           xdescent, ydescent, width, height, fontsize, trans):
+            n = 64
+            patches = []
+            for i in range(n):
+                x0 = xdescent + width * i / n
+                color = _veg_cmap(_veg_norm(i / (n - 1)))
+                patches.append(
+                    FancyBboxPatch(
+                        (x0, ydescent), width / n + 0.5, height,
+                        boxstyle="square,pad=0",
+                        linewidth=0, facecolor=color,
+                        transform=trans,
+                    )
+                )
+            return patches
+
+    _handles, _labels = ax.get_legend_handles_labels()
+    _handler_map = {}
+    if _any_veg_plotted:
+        _veg_proxy = Patch(facecolor='none', edgecolor='none')
+        _handles.append(_veg_proxy)
+        _labels.append('Vegetation cover')
+        _handler_map[_veg_proxy] = _VegColormapHandler()
+
+    ax.legend(_handles, _labels, handler_map=_handler_map,
+              loc='upper center', bbox_to_anchor=(0.5, -0.18),
               ncol=3, fontsize=11, frameon=True)
 
     ax.set_xlim(left=0, right=x_fill_right)
