@@ -156,21 +156,78 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     c_sea   = "#b7dff5"   # soft ocean blue
     c_sand  = "#f4e6c8"   # very light sand
     
-    x_init = np.array(list(dune_x_init.values()))
-    z_init = np.array(list(dune_z_init.values()))
+    _profile_order = [
+        'back_ref', 'lee_foot', 'lee_crest', 'crest_temp',
+        'seaward_crest', 'ramp_dike_temp', 'ramp_crest',
+        'ramp_toe_temp', 'ramp_toe', 'shoreline'
+    ]
 
-    x_curr = np.array(list(dune_x_curr.values()))
-    z_curr = np.array(list(dune_z_curr.values()))
+    def _ordered_profile_points(dune_x, dune_z, start_key=None):
+        keys = [
+            key for key in _profile_order
+            if key in dune_x and key in dune_z
+            and dune_x[key] is not None and dune_z[key] is not None
+        ]
+        if start_key in keys:
+            keys = keys[keys.index(start_key):]
+        x = np.array([dune_x[key] for key in keys], dtype=float)
+        z = np.array([dune_z[key] for key in keys], dtype=float)
+        if x.size == 0:
+            return x, z
 
-    #order_i = np.argsort(x_init, kind='stable')
-    #order_c = np.argsort(x_curr, kind='stable')
+        _present = {key: idx for idx, key in enumerate(keys)}
+        if 'crest_temp' in _present and 'seaward_crest' in _present:
+            ict, isc = _present['crest_temp'], _present['seaward_crest']
+            if x[ict] > x[isc]:
+                x[ict] = x[isc]
+        if 'seaward_crest' in _present and 'ramp_dike_temp' in _present:
+            isc, irdt = _present['seaward_crest'], _present['ramp_dike_temp']
+            if x[isc] > x[irdt]:
+                x[isc] = x[irdt]
+        if 'ramp_dike_temp' in _present and 'ramp_crest' in _present:
+            irdt, irc = _present['ramp_dike_temp'], _present['ramp_crest']
+            if x[irc] < x[irdt]:
+                x[irc] = x[irdt]
 
-    #x_init, z_init = x_init[order_i], z_init[order_i]
-    #x_curr, z_curr = x_curr[order_c], z_curr[order_c]
+        order = np.argsort(x, kind='stable')
+        return x[order], z[order]
 
-    xg_start = min(x_init[1:].min(), x_curr[1:].min())
-    xg_end   = max(x_init[1:].max(), x_curr[1:].max())
-    if x_init[1:].size == 0 or x_curr[1:].size == 0 or xg_start >= xg_end:
+    def _fill_profile_points(dune_x, dune_z, start_key=None):
+        x, z = _ordered_profile_points(dune_x, dune_z, start_key=start_key)
+        if x.size <= 1:
+            return x, z, x, z
+
+        n_per_segment = 100
+        x_dense = np.concatenate([
+            np.linspace(x[i], x[i + 1], n_per_segment, endpoint=False)
+            for i in range(len(x) - 1)
+        ] + [[x[-1]]])
+        z_dense = np.concatenate([
+            np.linspace(z[i], z[i + 1], n_per_segment, endpoint=False)
+            for i in range(len(z) - 1)
+        ] + [[z[-1]]])
+
+        x_unique, inverse = np.unique(x_dense, return_inverse=True)
+        z_upper = np.full(x_unique.shape, -np.inf, dtype=float)
+        np.maximum.at(z_upper, inverse, z_dense)
+        return x, z, x_unique, z_upper
+
+    x_init, z_init, x_init_fill, z_init_fill = _fill_profile_points(dune_x_init, dune_z_init)
+    x_curr, z_curr, x_curr_fill, z_curr_fill = _fill_profile_points(dune_x_curr, dune_z_curr)
+    _, _, x_init_body_fill, z_init_body_fill = _fill_profile_points(
+        dune_x_init, dune_z_init, start_key='lee_foot'
+    )
+    _, _, x_curr_body_fill, z_curr_body_fill = _fill_profile_points(
+        dune_x_curr, dune_z_curr, start_key='lee_foot'
+    )
+
+    if x_init_fill.size == 0 or x_curr_fill.size == 0:
+        print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles are empty or degenerate).")
+        return None
+
+    xg_start = min(x_init_fill.min(), x_curr_fill.min())
+    xg_end   = max(x_init_fill.max(), x_curr_fill.max())
+    if x_init_body_fill.size == 0 or x_curr_body_fill.size == 0 or xg_start >= xg_end:
         # Profiles are empty or degenerate – skip this snapshot
         print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles are empty or degenerate).")
         return None
@@ -181,10 +238,15 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     #z_curr_g = np.interp(xg, x_curr, z_curr)
     z_sub_g = np.interp(xg, substrate_x, substrate_z)
 
-    # Keep NaN outside profile extents — start from lee_foot (index 1) so that
-    # validity masks are bounded by each curve's lee_foot, not back_ref.
-    z_init_g = np.interp(xg, x_init[1:], z_init[1:], left=np.nan, right=np.nan)
-    z_curr_g = np.interp(xg, x_curr[1:], z_curr[1:], left=np.nan, right=np.nan)
+    # Full-profile fills should reach the latest visible profile everywhere,
+    # including vertical/duplicate-x sections and the landward back-ref segment.
+    z_init_fill_g = np.interp(xg, x_init_fill, z_init_fill, left=np.nan, right=np.nan)
+    z_curr_fill_g = np.interp(xg, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+
+    # Change fills stay bounded from lee_foot onward so the back-ref segment does
+    # not create spurious erosion/deposition shading landward of the dune body.
+    z_init_g = np.interp(xg, x_init_body_fill, z_init_body_fill, left=np.nan, right=np.nan)
+    z_curr_g = np.interp(xg, x_curr_body_fill, z_curr_body_fill, left=np.nan, right=np.nan)
     
     # Masks for robust change filling
     init_valid = np.isfinite(z_init_g)
@@ -196,8 +258,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     # Light sand body under the final profile
     ax.fill_between(xg,
                 0.0,
-                z_curr_g,
-                where=np.isfinite(z_curr_g),
+                z_curr_fill_g,
+                where=np.isfinite(z_curr_fill_g),
                 facecolor=c_sand,
                 edgecolor='none',
                 alpha=0.6,
@@ -227,7 +289,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     # Fallback deposition in final-only zones using edge level of initial profile.
     # This captures shoreline progradation beyond initial x-limits when substrate
     # capping would otherwise suppress the fill.
-    z_init_edge = np.where(xg < x_init[1:].min(), z_init[1], z_init[-1])
+    z_init_edge = np.where(xg < x_init_body_fill.min(), z_init_body_fill[0], z_init_body_fill[-1])
     ax.fill_between(xg, z_init_edge, z_curr_g,
                     where=(curr_valid & ~init_valid & (z_curr_g > z_init_edge) & ~(z_curr_g > z_sub_g)),
                     color=c_fill_pos,
@@ -245,11 +307,11 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     
     # ---- Boundary conditions ----
     # Use surface that fills NaN gaps with substrate for water-level fills
-    z_curr_for_sea = np.where(np.isfinite(z_curr_g), z_curr_g, z_sub_g)
+    z_curr_for_sea = np.where(np.isfinite(z_curr_fill_g), z_curr_fill_g, z_sub_g)
 
     # Compute seaward extent of the sea fill (used for xlim regardless of bc_info)
-    _x_ramp_toe_lim  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
-    _x_shoreline_lim = dune_x_curr.get('shoreline', x_curr[1:].max())
+    _x_ramp_toe_lim  = dune_x_curr.get('ramp_toe', x_curr_fill.max())
+    _x_shoreline_lim = dune_x_curr.get('shoreline', x_curr_fill.max())
     x_sea_end = _x_shoreline_lim + 0.1 * (_x_shoreline_lim - _x_ramp_toe_lim)
     x_fill_right = x_lim_right if x_lim_right is not None else x_sea_end
     # Keep sea-fill x coordinates monotonic (required by fill_between) even if a
@@ -264,8 +326,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         wind_speed  = bc_info.get('wind_speed')
         wind_dir    = bc_info.get('wind_direction')
 
-        x_ramp_toe  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
-        x_shoreline = dune_x_curr.get('shoreline', x_curr[1:].max())
+        x_ramp_toe  = dune_x_curr.get('ramp_toe', x_curr_fill.max())
+        x_shoreline = dune_x_curr.get('shoreline', x_curr_fill.max())
 
         # Extended profile grid to include the seaward visual margin
         _xfill = np.concatenate([xg, [x_fill_right]])
