@@ -55,6 +55,8 @@ from scipy.optimize import brentq
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, Patch
 from matplotlib.legend_handler import HandlerBase
+from matplotlib.lines import Line2D
+from matplotlib.text import Text
 from shapely.geometry import LineString
 from scipy.interpolate import interp1d
 import pandas as pd
@@ -140,7 +142,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         ``rhov_df`` (dune front/ramp), ``rhov_dt`` (dune top), and
         ``rhov_db`` (dune back/lee).  Optional second-species values
         (``rhov_df2``, ``rhov_dt2``, ``rhov_db2``) are summed and clipped to 1.
-        Rendered as short vertical lines anchored to the current dune profile.
+        Rendered as short curved stems anchored to the current dune profile.
     y_lim_top : float or None, optional
         Fixed upper limit for the y-axis.  When provided, all snapshots share
         the same vertical range so that sudden water-level events do not cause
@@ -351,6 +353,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     _veg_cmap = plt.cm.Greens
     _veg_norm = plt.Normalize(vmin=0.0, vmax=1.0)
     _any_veg_plotted = False
+    _veg_rng = np.random.default_rng(int(timestep))
 
     def _plot_veg_band(x0, x1, cov):
         nonlocal _any_veg_plotted
@@ -359,8 +362,12 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         xa, xb = float(min(x0, x1)), float(max(x0, x1))
         if xb - xa <= 1e-9:
             return
-        n_lines = max(4, min(35, int((xb - xa) / 1.0)))
+        n_lines = max(8, min(80, int((xb - xa) * (1.3 + 1.6 * cov))))
         xv = np.linspace(xa, xb, n_lines)
+        if xv.size > 1:
+            _dx = (xb - xa) / max(1, (xv.size - 1))
+            xv = np.clip(xv + _veg_rng.uniform(-0.35, 0.35, size=xv.size) * _dx, xa, xb)
+            xv.sort()
         zv = np.interp(xv, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
         z_sub_v = np.interp(xv, substrate_x, substrate_z)
         # Hide lines whose base sits inside/below the substrate (dike grey zone)
@@ -369,10 +376,20 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         if xv.size == 0:
             return
         veg_color = _veg_cmap(_veg_norm(cov))
-        veg_lw = 0.5 + 3.0 * cov
+        veg_lw = 0.7 + 2.4 * cov
         veg_h = 0.35 + 1.5 * cov
-        ax.vlines(xv, zv, zv + veg_h, colors=[veg_color],
-                  linewidth=veg_lw, alpha=0.95, zorder=4.6)
+        for _x, _z in zip(xv, zv):
+            _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.15), 0.65, 1.35)
+            _curv = _veg_rng.uniform(-1.0, 1.0) * (0.04 + 0.12 * cov)
+            _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.01 + 0.05 * cov)
+            _p0x, _p0z = _x, _z
+            _p1x, _p1z = _x + _curv, _z + 0.58 * _h
+            _p2x, _p2z = _x + 0.45 * _curv + _tip_j, _z + _h
+            _t = np.linspace(0.0, 1.0, 8)
+            _omt = 1.0 - _t
+            _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
+            _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
+            ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=4.6)
         _any_veg_plotted = True
 
     _plot_veg_band(
@@ -390,15 +407,6 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         dune_x_curr.get('lee_foot', np.nan),
         _veg_cov['db']
     )
-
-    # Add an inset colorbar for vegetation coverage (shown only when any veg was plotted)
-    if _any_veg_plotted:
-        _sm = plt.cm.ScalarMappable(cmap=_veg_cmap, norm=_veg_norm)
-        _sm.set_array([])
-        _cbar_ax = ax.inset_axes([0.01, 0.01, 0.18, 0.045])
-        _cb = fig.colorbar(_sm, cax=_cbar_ax, orientation='horizontal')
-        _cb.set_label('Vegetation cover', fontsize=8.5)
-        _cb.ax.tick_params(labelsize=8)
 
     # ---- Boundary conditions ----
     # Use surface for water-level fills.
@@ -534,19 +542,44 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         def create_artists(self, legend, orig_handle,
                            xdescent, ydescent, width, height, fontsize, trans):
             n = 64
-            patches = []
+            bar_y = ydescent + 0.35 * height
+            bar_h = 0.35 * height
+            artists = []
             for i in range(n):
                 x0 = xdescent + width * i / n
                 color = _veg_cmap(_veg_norm(i / (n - 1)))
-                patches.append(
+                artists.append(
                     FancyBboxPatch(
-                        (x0, ydescent), width / n + 0.5, height,
+                        (x0, bar_y), width / n + 0.5, bar_h,
                         boxstyle="square,pad=0",
                         linewidth=0, facecolor=color,
                         transform=trans,
                     )
                 )
-            return patches
+            for frac, lbl in ((0.0, "0"), (0.5, "0.5"), (1.0, "1")):
+                xt = xdescent + frac * width
+                artists.append(
+                    Line2D(
+                        [xt, xt],
+                        [bar_y - 0.14 * height, bar_y],
+                        color="0.2",
+                        linewidth=0.8,
+                        transform=trans,
+                    )
+                )
+                artists.append(
+                    Text(
+                        xt,
+                        ydescent + 0.02 * height,
+                        lbl,
+                        ha="center",
+                        va="bottom",
+                        fontsize=fontsize * 0.66,
+                        color="0.15",
+                        transform=trans,
+                    )
+                )
+            return artists
 
     _handles, _labels = ax.get_legend_handles_labels()
     _handler_map = {}
