@@ -362,35 +362,57 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         xa, xb = float(min(x0, x1)), float(max(x0, x1))
         if xb - xa <= 1e-9:
             return
-        n_lines = max(8, min(80, int((xb - xa) * (1.3 + 1.6 * cov))))
-        xv = np.linspace(xa, xb, n_lines)
-        if xv.size > 1:
-            _dx = (xb - xa) / max(1, (xv.size - 1))
-            xv = np.clip(xv + _veg_rng.uniform(-0.35, 0.35, size=xv.size) * _dx, xa, xb)
-            xv.sort()
-        zv = np.interp(xv, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
-        z_sub_v = np.interp(xv, substrate_x, substrate_z)
-        # Hide lines whose base sits inside/below the substrate (dike grey zone)
-        _ok = np.isfinite(zv) & (zv > z_sub_v)
-        xv, zv = xv[_ok], zv[_ok]
-        if xv.size == 0:
+        _anchor_mean = max(2.0, (xb - xa) * (0.30 + 2.40 * cov))
+        n_anchor = int(np.clip(
+            np.round(_anchor_mean + _veg_rng.normal(0.0, 0.22 * _anchor_mean)),
+            2, 70
+        ))
+        xv_anchor = np.linspace(xa, xb, n_anchor)
+        if xv_anchor.size > 1:
+            _dx = (xb - xa) / max(1, (xv_anchor.size - 1))
+            xv_anchor = np.clip(
+                xv_anchor + _veg_rng.uniform(-0.42, 0.42, size=xv_anchor.size) * _dx,
+                xa, xb
+            )
+            xv_anchor.sort()
+
+        zv_anchor = np.interp(xv_anchor, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+        z_sub_anchor = np.interp(xv_anchor, substrate_x, substrate_z)
+        _ok_anchor = np.isfinite(zv_anchor) & (zv_anchor >= (z_sub_anchor - 1e-6))
+        xv_anchor, zv_anchor = xv_anchor[_ok_anchor], zv_anchor[_ok_anchor]
+        if xv_anchor.size == 0:
             return
+
         veg_color = _veg_cmap(_veg_norm(cov))
-        veg_lw = 0.7 + 2.4 * cov
-        veg_h = 0.35 + 1.5 * cov
-        for _x, _z in zip(xv, zv):
-            _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.15), 0.65, 1.35)
-            _curv = _veg_rng.uniform(-1.0, 1.0) * (0.04 + 0.12 * cov)
-            _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.01 + 0.05 * cov)
-            _p0x, _p0z = _x, _z
-            _p1x, _p1z = _x + _curv, _z + 0.58 * _h
-            _p2x, _p2z = _x + 0.45 * _curv + _tip_j, _z + _h
-            _t = np.linspace(0.0, 1.0, 8)
-            _omt = 1.0 - _t
-            _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
-            _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
-            ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=4.6)
-        _any_veg_plotted = True
+        veg_lw = 0.55 + 1.9 * cov
+        veg_h = 0.33 + 1.65 * cov
+        _anchor_spacing = (xb - xa) / max(1, n_anchor - 1)
+        _patch_spread = max(0.03, 0.25 * _anchor_spacing)
+        _plotted_in_band = False
+
+        for _xa, _za in zip(xv_anchor, zv_anchor):
+            _n_stems = int(_veg_rng.integers(4, 9))
+            for _ in range(_n_stems):
+                _x = np.clip(_xa + _veg_rng.normal(0.0, _patch_spread), xa, xb)
+                _z = np.interp(_x, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+                _z_sub = np.interp(_x, substrate_x, substrate_z)
+                if not np.isfinite(_z) or _z < (_z_sub - 1e-6):
+                    continue
+
+                _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.22), 0.55, 1.50)
+                _curv = _veg_rng.uniform(-1.0, 1.0) * (0.05 + 0.16 * cov)
+                _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.015 + 0.08 * cov)
+                _p0x, _p0z = _x, _z
+                _p1x, _p1z = _x + _curv, _z + 0.56 * _h
+                _p2x, _p2z = _x + 0.52 * _curv + _tip_j, _z + _h
+                _t = np.linspace(0.0, 1.0, 9)
+                _omt = 1.0 - _t
+                _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
+                _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
+                ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
+                _plotted_in_band = True
+
+        _any_veg_plotted = _any_veg_plotted or _plotted_in_band
 
     _plot_veg_band(
         dune_x_curr.get('ramp_toe', np.nan),
@@ -404,7 +426,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     )
     _plot_veg_band(
         dune_x_curr.get('lee_crest', np.nan),
-        dune_x_curr.get('lee_foot', np.nan),
+        dune_x_curr.get('lee_foot', dune_x_curr.get('back_ref', np.nan)),
         _veg_cov['db']
     )
 
@@ -542,8 +564,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         def create_artists(self, legend, orig_handle,
                            xdescent, ydescent, width, height, fontsize, trans):
             n = 64
-            bar_y = ydescent + 0.35 * height
-            bar_h = 0.35 * height
+            bar_y = ydescent + 0.58 * height
+            bar_h = 0.25 * height
             artists = []
             for i in range(n):
                 x0 = xdescent + width * i / n
@@ -561,7 +583,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 artists.append(
                     Line2D(
                         [xt, xt],
-                        [bar_y - 0.14 * height, bar_y],
+                        [bar_y - 0.16 * height, bar_y],
                         color="0.2",
                         linewidth=0.8,
                         transform=trans,
@@ -570,7 +592,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 artists.append(
                     Text(
                         xt,
-                        ydescent + 0.02 * height,
+                        ydescent + 0.06 * height,
                         lbl,
                         ha="center",
                         va="bottom",
