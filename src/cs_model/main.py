@@ -1401,6 +1401,38 @@ def run_model(config_path, check_mass_conservation=False,
                 "Warning: manual plot limits were provided "
                 "but manual_plot_limits=False; automatic plot limits are used."
             )
+
+        # Save an explicit initial frame so GIF/MP4 always start at timestep 0.
+        _bc_info_0 = None
+        if _total_steps > 0:
+            _bc_info_0 = {
+                'wave_height': wave_time_series[0],
+                'wave_period': wave_period_time_series[0],
+                'swl': swl_time_series[0],
+                'runup': _r_all[0],
+                'total_water_level': _twl_all[0],
+                'wind_speed': wind_speed_time_series[0],
+                'wind_direction': wind_dir_time_series[0],
+            }
+        _veg_info_0 = {
+            'rhov_df': rhov_df,
+            'rhov_dt': rhov_dt,
+            'rhov_db': rhov_db,
+            'rhov_df2': rhov_df2 if p.vegcount == 1 else 0.0,
+            'rhov_dt2': rhov_dt2 if p.vegcount == 1 else 0.0,
+            'rhov_db2': rhov_db2 if p.vegcount == 1 else 0.0,
+        }
+        _frame_path_0 = _safe_save_profile_snapshot(
+            results['dune_x'][0], results['dune_z'][0],
+            results['dune_x'][0], results['dune_z'][0],
+            substrate_x, substrate_z,
+            _plot_output_base, 0, 0.0,
+            bc_info=_bc_info_0, vegetation_info=_veg_info_0,
+            y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+            x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
+        )
+        if _frame_path_0 is not None:
+            _plot_saved_frames.append(_frame_path_0)
         
     ############################################################################
     # START SIMULATION
