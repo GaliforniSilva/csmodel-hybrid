@@ -954,11 +954,68 @@ def _create_evolution_video(frame_paths, output_path, fps=2):
         print("Warning: no snapshot frames found; evolution MP4 not created.")
         return
 
+    if fps <= 0:
+        print(f"Warning: invalid fps={fps}; using fps=2 for MP4 export.")
+        fps = 2
+
+    # Read and normalize first frame (drop alpha/grayscale, enforce uint8)
+    first_frame = np.asarray(imageio.imread(valid_paths[0]))
+    if first_frame.ndim == 2:
+        first_frame = np.stack([first_frame] * 3, axis=-1)
+    elif first_frame.ndim == 3 and first_frame.shape[2] == 4:
+        first_frame = first_frame[:, :, :3]
+    first_frame = first_frame.astype(np.uint8, copy=False)
+
+    # yuv420p requires even width/height; trim by one pixel when needed.
+    target_h = first_frame.shape[0] - (first_frame.shape[0] % 2)
+    target_w = first_frame.shape[1] - (first_frame.shape[1] % 2)
+    if target_h <= 0 or target_w <= 0:
+        print("Warning: invalid frame size; evolution MP4 not created.")
+        return
+
+    def _to_target_rgb(frame):
+        frame = np.asarray(frame)
+        if frame.ndim == 2:
+            frame = np.stack([frame] * 3, axis=-1)
+        elif frame.ndim == 3 and frame.shape[2] == 4:
+            frame = frame[:, :, :3]
+        frame = frame.astype(np.uint8, copy=False)
+
+        # Fit to target by top-left crop + zero padding (no external deps).
+        out = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        h = min(target_h, frame.shape[0])
+        w = min(target_w, frame.shape[1])
+        out[:h, :w, :] = frame[:h, :w, :3]
+        return out
+
     try:
-        with imageio.get_writer(output_path, fps=fps, codec="libx264") as writer:
-            for path in valid_paths:
-                writer.append_data(imageio.imread(path))
+        if os.path.isfile(output_path):
+            os.remove(output_path)
+
+        written_frames = 0
+        with imageio.get_writer(
+            output_path,
+            format="FFMPEG",
+            fps=float(fps),
+            codec="libx264",
+            pixelformat="yuv420p",
+            macro_block_size=1
+        ) as writer:
+            writer.append_data(_to_target_rgb(first_frame))
+            written_frames += 1
+            for path in valid_paths[1:]:
+                frame = imageio.imread(path)
+                writer.append_data(_to_target_rgb(frame))
+                written_frames += 1
+
+        if written_frames == 0 or (not os.path.isfile(output_path)) or os.path.getsize(output_path) == 0:
+            if os.path.isfile(output_path):
+                os.remove(output_path)
+            print("Warning: evolution MP4 was empty; file removed.")
+            return
     except Exception as exc:
+        if os.path.isfile(output_path):
+            os.remove(output_path)
         print(f"Warning: failed to create evolution MP4 at {output_path}. Error: {exc}")
         return
 
