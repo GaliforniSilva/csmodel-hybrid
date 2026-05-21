@@ -824,11 +824,10 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
     _handles, _labels = ax.get_legend_handles_labels()
     _handler_map = {}
-    if _any_veg_plotted:
-        _veg_proxy = Patch(facecolor='none', edgecolor='none')
-        _handles.append(_veg_proxy)
-        _labels.append('Vegetation cover')
-        _handler_map[_veg_proxy] = _VegColormapHandler()
+    _veg_proxy = Patch(facecolor='none', edgecolor='none')
+    _handles.append(_veg_proxy)
+    _labels.append('Vegetation cover')
+    _handler_map[_veg_proxy] = _VegColormapHandler()
 
     ax.legend(_handles, _labels, handler_map=_handler_map,
               loc='upper center', bbox_to_anchor=(0.5, -0.18),
