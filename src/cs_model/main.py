@@ -929,12 +929,48 @@ def _create_evolution_movie(frame_paths, output_path, fps=2):
     print(f"Evolution movie saved to {output_path}")
 
 
+def _create_evolution_video(frame_paths, output_path, fps=2):
+    """
+    Create an MP4 video from a list of snapshot PNG files.
+
+    Parameters
+    ----------
+    frame_paths : list of str
+        Ordered list of PNG file paths to stitch into the video.
+    output_path : str
+        Destination path for the MP4 file.
+    fps : int, optional
+        Frames per second (default 2).
+    """
+    try:
+        import imageio.v2 as imageio
+    except ImportError:
+        print("Warning: imageio is not installed – cannot create evolution MP4. "
+              "Install it with: pip install imageio imageio-ffmpeg")
+        return
+
+    valid_paths = [path for path in frame_paths if os.path.isfile(path)]
+    if not valid_paths:
+        print("Warning: no snapshot frames found; evolution MP4 not created.")
+        return
+
+    try:
+        with imageio.get_writer(output_path, fps=fps, codec="libx264") as writer:
+            for path in valid_paths:
+                writer.append_data(imageio.imread(path))
+    except Exception as exc:
+        print(f"Warning: failed to create evolution MP4 at {output_path}. Error: {exc}")
+        return
+
+    print(f"Evolution movie saved to {output_path}")
+
+
 def run_model(config_path, check_mass_conservation=False,
               plot_evolution=False, plot_evolution_interval=5.0,
               save_evolution_movie=False, skip_first_step_conservation=False,
               manual_plot_limits=False, manual_plot_y_lim_top=None,
               manual_plot_y_lim_bottom=None, manual_plot_x_lim_right=None,
-              manual_plot_x_lim_left=None):
+              manual_plot_x_lim_left=None, save_evolution_video=False):
     """
     Run the CS model using a YAML configuration file.
 
@@ -960,6 +996,12 @@ def run_model(config_path, check_mass_conservation=False,
         simulation ends.  The file is saved as ``<output_base>_evolution.gif``
         alongside the model output.  Requires ``plot_evolution=True`` and
         Pillow (``pip install Pillow``).  Default is False.
+    save_evolution_video : bool, optional
+        If True, stitch all saved snapshots into an MP4 video after the
+        simulation ends. The file is saved as ``<output_base>_evolution.mp4``
+        alongside the model output. Requires ``plot_evolution=True`` and
+        imageio/imageio-ffmpeg (``pip install imageio imageio-ffmpeg``).
+        Default is False.
     skip_first_step_conservation : bool, optional
         If True, the first model time step is excluded from the mass conservation
         analysis.  Passed directly to ``check_mass_conservation`` when
@@ -1734,6 +1776,8 @@ def run_model(config_path, check_mass_conservation=False,
 
     if save_evolution_movie and not plot_evolution:
         print("Warning: save_evolution_movie=True has no effect when plot_evolution=False.")
+    if save_evolution_video and not plot_evolution:
+        print("Warning: save_evolution_video=True has no effect when plot_evolution=False.")
 
     if plot_evolution and save_evolution_movie and _plot_saved_frames:
         movie_path = f"{_plot_output_base}_evolution.gif"
@@ -1741,6 +1785,12 @@ def run_model(config_path, check_mass_conservation=False,
             _create_evolution_movie(_plot_saved_frames, movie_path)
         except Exception as exc:
             print(f"Warning: evolution GIF creation failed; continuing without GIF. Error: {exc}")
+    if plot_evolution and save_evolution_video and _plot_saved_frames:
+        video_path = f"{_plot_output_base}_evolution.mp4"
+        try:
+            _create_evolution_video(_plot_saved_frames, video_path)
+        except Exception as exc:
+            print(f"Warning: evolution MP4 creation failed; continuing without MP4. Error: {exc}")
     
     ############################################################################
     # MASS CONSERVATION CHECK (if requested)
