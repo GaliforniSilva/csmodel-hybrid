@@ -53,11 +53,17 @@ import os
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch, Patch
+from matplotlib.legend_handler import HandlerBase
+from matplotlib.lines import Line2D
+from matplotlib.text import Text
+from matplotlib.colors import ListedColormap
 from shapely.geometry import LineString
 from scipy.interpolate import interp1d
 import pandas as pd
 import netCDF4 as nc
 import yaml
+import zlib
 from types import SimpleNamespace
 
 
@@ -82,6 +88,10 @@ from cs_model.functions import *
 from cs_model.mass_conservation import calculate_compartment_volumes, calculate_timestep_conservation
 import pickle
 
+# Persistent vegetation rendering state used by snapshot plotting so stems
+# evolve smoothly from one timestep to the next within the same run.
+_VEG_RENDER_STATE = {}
+
 ############################################################################
 # INITIALIZATION OF PARAMETERS
 ############################################################################
@@ -101,7 +111,9 @@ def load_config(config_path):
 
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                            substrate_x, substrate_z, output_base, timestep,
-                           progress_pct, bc_info=None, y_lim_top=None, x_lim_right=None):
+                           progress_pct, bc_info=None, vegetation_info=None,
+                           y_lim_top=None, y_lim_bottom=None,
+                           x_lim_right=None, x_lim_left=None):
     """
     Save a snapshot plot of the current cross-shore profile vs the initial profile.
 
@@ -132,16 +144,28 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         ``runup`` (m), ``total_water_level`` (TWL, m).
         When ``total_water_level`` is present a water-level fill is drawn
         on the seaward side of the profile using the sea colour.
+    vegetation_info : dict, optional
+        Normalized vegetation coverage values (0–1) for three dune zones:
+        ``rhov_df`` (dune front/ramp), ``rhov_dt`` (dune top), and
+        ``rhov_db`` (dune back/lee).  Optional second-species values
+        (``rhov_df2``, ``rhov_dt2``, ``rhov_db2``) are summed and clipped to 1.
+        Rendered as short curved stems anchored to the current dune profile.
     y_lim_top : float or None, optional
         Fixed upper limit for the y-axis.  When provided, all snapshots share
         the same vertical range so that sudden water-level events do not cause
         the axis to rescale between frames.  When ``None`` (default), the
         upper limit is determined automatically by matplotlib.
+    y_lim_bottom : float or None, optional
+        Fixed lower limit for the y-axis.  When provided, every snapshot uses
+        this value.  When ``None`` (default), 0 is used.
     x_lim_right : float or None, optional
         Fixed right limit for the x-axis.  When provided, every snapshot uses
         this value so GIF frames have consistent horizontal extent.  When
         ``None`` (default) the limit is computed dynamically from the current
         shoreline position.
+    x_lim_left : float or None, optional
+        Fixed left limit for the x-axis.  When provided, every snapshot uses
+        this value.  When ``None`` (default), 0 is used.
 
     Returns
     -------
@@ -151,26 +175,92 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     c_init  = "#1f77b4"   # blue
     c_final = "#d62728"   # red
     c_sub   = "0.3"       # grey
-    c_fill_pos = "#2ca02c"  # green (deposition)
+    c_fill_pos = "#ff7f0e"  # orange (deposition)
     c_fill_neg = "#7b2cbf"  # purple (erosion)
     c_sea   = "#b7dff5"   # soft ocean blue
     c_sand  = "#f4e6c8"   # very light sand
     
-    x_init = np.array(list(dune_x_init.values()))
-    z_init = np.array(list(dune_z_init.values()))
+    _profile_order = [
+        'back_ref', 'lee_foot', 'lee_crest', 'crest_temp',
+        'seaward_crest', 'ramp_dike_temp', 'ramp_crest',
+        'ramp_toe_temp', 'ramp_toe', 'shoreline'
+    ]
 
-    x_curr = np.array(list(dune_x_curr.values()))
-    z_curr = np.array(list(dune_z_curr.values()))
+    def _ordered_profile_points(dune_x, dune_z, start_key=None):
+        keys = [
+            key for key in _profile_order
+            if key in dune_x and key in dune_z
+            and dune_x[key] is not None and dune_z[key] is not None
+        ]
+        if start_key in keys:
+            keys = keys[keys.index(start_key):]
+        x = np.array([dune_x[key] for key in keys], dtype=float)
+        z = np.array([dune_z[key] for key in keys], dtype=float)
+        if x.size == 0:
+            return x, z
 
-    #order_i = np.argsort(x_init, kind='stable')
-    #order_c = np.argsort(x_curr, kind='stable')
+        # Drop any coordinate that is NaN or Inf – a NaN breaks the plotted line.
+        _finite = np.isfinite(x) & np.isfinite(z)
+        keys  = [k for k, ok in zip(keys, _finite) if ok]
+        x, z  = x[_finite], z[_finite]
+        if x.size == 0:
+            return x, z
 
-    #x_init, z_init = x_init[order_i], z_init[order_i]
-    #x_curr, z_curr = x_curr[order_c], z_curr[order_c]
+        _present = {key: idx for idx, key in enumerate(keys)}
+        if 'crest_temp' in _present and 'seaward_crest' in _present:
+            ict, isc = _present['crest_temp'], _present['seaward_crest']
+            if x[ict] > x[isc]:
+                x[ict] = x[isc]
+        if 'seaward_crest' in _present and 'ramp_dike_temp' in _present:
+            isc, irdt = _present['seaward_crest'], _present['ramp_dike_temp']
+            if x[isc] > x[irdt]:
+                x[isc] = x[irdt]
+        if 'ramp_dike_temp' in _present and 'ramp_crest' in _present:
+            irdt, irc = _present['ramp_dike_temp'], _present['ramp_crest']
+            if x[irc] < x[irdt]:
+                x[irc] = x[irdt]
 
-    xg_start = min(x_init[1:].min(), x_curr[1:].min())
-    xg_end   = max(x_init[1:].max(), x_curr[1:].max())
-    if x_init[1:].size == 0 or x_curr[1:].size == 0 or xg_start >= xg_end:
+        order = np.argsort(x, kind='stable')
+        return x[order], z[order]
+
+    def _fill_profile_points(dune_x, dune_z, start_key=None):
+        x, z = _ordered_profile_points(dune_x, dune_z, start_key=start_key)
+        if x.size == 0:
+            return x, z, x, z
+        if x.size == 1:
+            return x, z, x, z
+
+        n_per_segment = 100
+        x_dense = np.concatenate([
+            np.linspace(x[i], x[i + 1], n_per_segment, endpoint=False)
+            for i in range(len(x) - 1)
+        ] + [[x[-1]]])
+        z_dense = np.concatenate([
+            np.linspace(z[i], z[i + 1], n_per_segment, endpoint=False)
+            for i in range(len(z) - 1)
+        ] + [[z[-1]]])
+
+        x_unique, inverse = np.unique(x_dense, return_inverse=True)
+        z_upper = np.full(x_unique.shape, -np.inf, dtype=float)
+        np.maximum.at(z_upper, inverse, z_dense)
+        return x, z, x_unique, z_upper
+
+    x_init, z_init, x_init_fill, z_init_fill = _fill_profile_points(dune_x_init, dune_z_init)
+    x_curr, z_curr, x_curr_fill, z_curr_fill = _fill_profile_points(dune_x_curr, dune_z_curr)
+    _, _, x_init_body_fill, z_init_body_fill = _fill_profile_points(
+        dune_x_init, dune_z_init, start_key='lee_foot'
+    )
+    _, _, x_curr_body_fill, z_curr_body_fill = _fill_profile_points(
+        dune_x_curr, dune_z_curr, start_key='lee_foot'
+    )
+
+    if x_init_fill.size == 0 or x_curr_fill.size == 0:
+        print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles are empty or degenerate).")
+        return None
+
+    xg_start = min(x_init_fill.min(), x_curr_fill.min())
+    xg_end   = max(x_init_fill.max(), x_curr_fill.max())
+    if x_init_body_fill.size == 0 or x_curr_body_fill.size == 0 or xg_start >= xg_end:
         # Profiles are empty or degenerate – skip this snapshot
         print(f"Profile snapshot at {progress_pct:.0f}% skipped (profiles are empty or degenerate).")
         return None
@@ -181,10 +271,15 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     #z_curr_g = np.interp(xg, x_curr, z_curr)
     z_sub_g = np.interp(xg, substrate_x, substrate_z)
 
-    # Keep NaN outside profile extents — start from lee_foot (index 1) so that
-    # validity masks are bounded by each curve's lee_foot, not back_ref.
-    z_init_g = np.interp(xg, x_init[1:], z_init[1:], left=np.nan, right=np.nan)
-    z_curr_g = np.interp(xg, x_curr[1:], z_curr[1:], left=np.nan, right=np.nan)
+    # Full-profile fills should reach the latest visible profile everywhere,
+    # including vertical/duplicate-x sections and the landward back-ref segment.
+    z_init_fill_g = np.interp(xg, x_init_fill, z_init_fill, left=np.nan, right=np.nan)
+    z_curr_fill_g = np.interp(xg, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+
+    # Change fills stay bounded from lee_foot onward so the back-ref segment does
+    # not create spurious erosion/deposition shading landward of the dune body.
+    z_init_g = np.interp(xg, x_init_body_fill, z_init_body_fill, left=np.nan, right=np.nan)
+    z_curr_g = np.interp(xg, x_curr_body_fill, z_curr_body_fill, left=np.nan, right=np.nan)
     
     # Masks for robust change filling
     init_valid = np.isfinite(z_init_g)
@@ -196,8 +291,8 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     # Light sand body under the final profile
     ax.fill_between(xg,
                 0.0,
-                z_curr_g,
-                where=np.isfinite(z_curr_g),
+                z_curr_fill_g,
+                where=np.isfinite(z_curr_fill_g),
                 facecolor=c_sand,
                 edgecolor='none',
                 alpha=0.6,
@@ -227,7 +322,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     # Fallback deposition in final-only zones using edge level of initial profile.
     # This captures shoreline progradation beyond initial x-limits when substrate
     # capping would otherwise suppress the fill.
-    z_init_edge = np.where(xg < x_init[1:].min(), z_init[1], z_init[-1])
+    z_init_edge = np.where(xg < x_init_body_fill.min(), z_init_body_fill[0], z_init_body_fill[-1])
     ax.fill_between(xg, z_init_edge, z_curr_g,
                     where=(curr_valid & ~init_valid & (z_curr_g > z_init_edge) & ~(z_curr_g > z_sub_g)),
                     color=c_fill_pos,
@@ -243,14 +338,307 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     ax.plot(x_curr, z_curr, color=c_final, lw=2.8, zorder=3,
             label=f"Profile at {progress_pct:.0f}%")
     
+    # ---- Vegetation overlay ----
+    if vegetation_info is None:
+        vegetation_info = {}
+
+    _veg_cov = {
+        'df': float(
+            np.clip(
+                vegetation_info.get('rhov_df', 0.0) + vegetation_info.get('rhov_df2', 0.0),
+                0.0, 1.0
+            )
+        ),
+        'dt': float(
+            np.clip(
+                vegetation_info.get('rhov_dt', 0.0) + vegetation_info.get('rhov_dt2', 0.0),
+                0.0, 1.0
+            )
+        ),
+        'db': float(
+            np.clip(
+                vegetation_info.get('rhov_db', 0.0) + vegetation_info.get('rhov_db2', 0.0),
+                0.0, 1.0
+            )
+        ),
+    }
+
+    _veg_cmap = ListedColormap(plt.cm.Greens(np.linspace(0.22, 0.98, 256)))
+    _veg_norm = plt.Normalize(vmin=0.0, vmax=1.0)
+    _any_veg_plotted = False
+    _veg_run_key = os.path.abspath(str(output_base))
+    _veg_run_state = _VEG_RENDER_STATE.setdefault(_veg_run_key, {})
+
+    def _plot_veg_band(x0, x1, cov, band_key):
+        nonlocal _any_veg_plotted
+        _COV_ZERO_EPS = 1e-6
+        _COV_PLOT_MIN = 1e-3
+
+        def _clear_band_state(_state):
+            _state["eff_cov"] = 0.0
+            _state["stems_u"] = np.array([], dtype=float)
+            _state["bend_lat"] = np.array([], dtype=float)
+            _state["tip_lat"] = np.array([], dtype=float)
+            _state["h_lat"] = np.array([], dtype=float)
+            _state["cluster_centers"] = np.array([], dtype=float)
+            _state["cluster_ids"] = np.array([], dtype=int)
+
+        _band_state = _veg_run_state.get(band_key, {})
+        if not np.isfinite(cov) or cov <= _COV_ZERO_EPS:
+            _clear_band_state(_band_state)
+            _veg_run_state[band_key] = _band_state
+            return
+        xa, xb = float(min(x0, x1)), float(max(x0, x1))
+        if xb - xa <= 1e-9:
+            return
+
+        _seed = int(zlib.crc32(f"{_veg_run_key}:{band_key}".encode("utf-8")) & 0xFFFFFFFF)
+        _veg_rng = _band_state.get("rng")
+        if _veg_rng is None:
+            _veg_rng = np.random.default_rng(_seed)
+            _band_state["rng"] = _veg_rng
+
+        _eff_cov_prev = float(_band_state.get("eff_cov", cov))
+        _eff_cov = float(np.clip(0.82 * _eff_cov_prev + 0.18 * cov, 0.0, 1.0))
+        if _eff_cov < _COV_PLOT_MIN:
+            _clear_band_state(_band_state)
+            _veg_run_state[band_key] = _band_state
+            return
+        _band_state["eff_cov"] = _eff_cov
+
+        _target_stems = int(
+            np.clip(
+                np.round((xb - xa) * (2.20 * (_eff_cov ** 1.30))),
+                0, 160
+            )
+        )
+        if _target_stems <= 0:
+            _clear_band_state(_band_state)
+            _veg_run_state[band_key] = _band_state
+            return
+        _MAX_PATCH = 6  # maximum stems per vegetation patch
+        _PATCH_SIG = 0.013 + 0.007 * _eff_cov  # spatial spread of stems within a patch
+
+        stems_u = np.asarray(_band_state.get("stems_u", np.array([])), dtype=float)
+        bend_lat = np.asarray(_band_state.get("bend_lat", np.array([])), dtype=float)
+        tip_lat = np.asarray(_band_state.get("tip_lat", np.array([])), dtype=float)
+        h_lat = np.asarray(_band_state.get("h_lat", np.array([])), dtype=float)
+        cluster_centers = np.asarray(_band_state.get("cluster_centers", np.array([])), dtype=float)
+        cluster_ids = np.asarray(_band_state.get("cluster_ids", np.array([])), dtype=int)
+
+        if stems_u.size == 0:
+            # Need at least enough clusters to hold all stems at max _MAX_PATCH each.
+            _min_clusters = int(np.ceil(_target_stems / _MAX_PATCH))
+            _n_cluster = max(
+                _min_clusters,
+                int(np.clip(np.round(2 + (xb - xa) * (0.06 + 0.14 * _eff_cov)), _min_clusters, 24)),
+            )
+            # Evenly spaced cluster centers with small jitter.
+            _base = np.linspace(0.08, 0.92, _n_cluster)
+            _jitter = _veg_rng.uniform(-0.04, 0.04, size=_n_cluster)
+            cluster_centers = np.clip(_base + _jitter, 0.02, 0.98)
+            # Distribute stems across clusters: round-robin so each gets ≤ _MAX_PATCH.
+            _cluster_counts = np.zeros(_n_cluster, dtype=int)
+            for _si in range(_target_stems):
+                _ci = _si % _n_cluster
+                _cluster_counts[_ci] += 1
+            _all_u, _all_cid = [], []
+            for _ci, (_ctr, _cnt) in enumerate(zip(cluster_centers, _cluster_counts)):
+                if _cnt <= 0:
+                    continue
+                _u = np.clip(_veg_rng.normal(_ctr, _PATCH_SIG, size=_cnt), 0.0, 1.0)
+                _all_u.append(_u)
+                _all_cid.extend([_ci] * _cnt)
+            stems_u = np.concatenate(_all_u) if _all_u else cluster_centers[:1].copy()
+            cluster_ids = np.array(_all_cid, dtype=int)
+            bend_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
+            tip_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
+            h_lat = _veg_rng.normal(0.0, 1.0, size=stems_u.size)
+        else:
+            # Drift stem positions and shape attributes.
+            stems_u = np.clip(stems_u + _veg_rng.normal(0.0, 0.008, size=stems_u.size), 0.0, 1.0)
+            bend_lat = 0.90 * bend_lat + 0.10 * _veg_rng.normal(0.0, 1.0, size=bend_lat.size)
+            tip_lat = 0.90 * tip_lat + 0.10 * _veg_rng.normal(0.0, 1.0, size=tip_lat.size)
+            h_lat = 0.88 * h_lat + 0.12 * _veg_rng.normal(0.0, 1.0, size=h_lat.size)
+
+            # Rebuild cluster_ids if missing (backwards compat or first update).
+            if cluster_centers.size == 0:
+                cluster_centers = stems_u.copy()
+                cluster_ids = np.arange(stems_u.size, dtype=int)
+            _n_cluster = cluster_centers.size
+
+            if stems_u.size < _target_stems:
+                _n_add = _target_stems - stems_u.size
+                _counts_per = np.bincount(cluster_ids, minlength=_n_cluster)
+                _capacity = np.maximum(0, _MAX_PATCH - _counts_per)
+                # If existing clusters are all full, spawn new ones.
+                if _capacity.sum() < _n_add:
+                    _extra = int(np.ceil((_n_add - _capacity.sum()) / _MAX_PATCH))
+                    _new_ctrs = _veg_rng.uniform(0.05, 0.95, size=_extra)
+                    cluster_centers = np.concatenate([cluster_centers, _new_ctrs])
+                    _capacity = np.concatenate([_capacity, np.full(_extra, _MAX_PATCH, dtype=int)])
+                    _counts_per = np.concatenate([_counts_per, np.zeros(_extra, dtype=int)])
+                    _n_cluster += _extra
+                # Add to least-filled clusters first.
+                _add_counts = np.zeros(_n_cluster, dtype=int)
+                _remaining = _n_add
+                for _ci in np.argsort(_counts_per):
+                    if _remaining <= 0:
+                        break
+                    _give = min(int(_capacity[_ci]), _remaining)
+                    _add_counts[_ci] = _give
+                    _remaining -= _give
+                _new_u_list, _new_cid_list = [], []
+                for _ci, _cnt in enumerate(_add_counts):
+                    if _cnt <= 0:
+                        continue
+                    _u = np.clip(_veg_rng.normal(cluster_centers[_ci], _PATCH_SIG, size=_cnt), 0.0, 1.0)
+                    _new_u_list.append(_u)
+                    _new_cid_list.extend([_ci] * _cnt)
+                if _new_u_list:
+                    _new_u = np.concatenate(_new_u_list)
+                    _new_cid = np.array(_new_cid_list, dtype=int)
+                    stems_u = np.concatenate([stems_u, _new_u])
+                    cluster_ids = np.concatenate([cluster_ids, _new_cid])
+                    bend_lat = np.concatenate([bend_lat, _veg_rng.normal(0.0, 1.0, size=_new_u.size)])
+                    tip_lat = np.concatenate([tip_lat, _veg_rng.normal(0.0, 1.0, size=_new_u.size)])
+                    h_lat = np.concatenate([h_lat, _veg_rng.normal(0.0, 1.0, size=_new_u.size)])
+
+            elif stems_u.size > _target_stems:
+                _n_remove = stems_u.size - _target_stems
+                _counts_per = np.bincount(cluster_ids, minlength=_n_cluster)
+                # Remove from most-populated clusters first.
+                _remove_counts = np.zeros(_n_cluster, dtype=int)
+                _remaining = _n_remove
+                for _ci in np.argsort(-_counts_per):
+                    if _remaining <= 0:
+                        break
+                    _take = min(int(_counts_per[_ci]), _remaining)
+                    _remove_counts[_ci] = _take
+                    _remaining -= _take
+                _keep_mask = np.ones(stems_u.size, dtype=bool)
+                for _ci, _cnt in enumerate(_remove_counts):
+                    if _cnt <= 0:
+                        continue
+                    _in_cluster = np.where(cluster_ids == _ci)[0]
+                    _keep_mask[_in_cluster[:_cnt]] = False
+                stems_u = stems_u[_keep_mask]
+                cluster_ids = cluster_ids[_keep_mask]
+                bend_lat = bend_lat[_keep_mask]
+                tip_lat = tip_lat[_keep_mask]
+                h_lat = h_lat[_keep_mask]
+
+        veg_color = _veg_cmap(_veg_norm(cov))
+        veg_lw = 0.42 + 1.55 * cov
+        veg_h = 0.33 + 1.65 * cov
+        _bend_scale = max(0.70, 0.110 * (xb - xa)) * (0.90 + 1.30 * _eff_cov)
+        _tip_scale = max(0.15, 0.035 * (xb - xa)) * (0.70 + 0.95 * _eff_cov)
+        _plotted_in_band = False
+
+        xv_stem = xa + stems_u * (xb - xa)
+        zv_stem = np.interp(xv_stem, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+        z_sub_stem = np.interp(xv_stem, substrate_x, substrate_z)
+        _ok_stem = np.isfinite(zv_stem) & (zv_stem >= (z_sub_stem - 3e-2))
+
+        for _x, _z, _b, _tj, _hl, _ok in zip(xv_stem, zv_stem, bend_lat, tip_lat, h_lat, _ok_stem):
+            if not _ok:
+                continue
+            _h = veg_h * np.clip(1.0 + 0.22 * _hl, 0.52, 1.62)
+            _curv = float(np.clip(_b, -2.0, 2.0)) * _bend_scale
+            _tip_j = float(np.clip(_tj, -2.0, 2.0)) * _tip_scale
+            _p0x, _p0z = _x, _z
+            _p1x, _p1z = _x + _curv, _z + 0.56 * _h
+            _p2x, _p2z = _x + 0.52 * _curv + _tip_j, _z + _h
+            _t = np.linspace(0.0, 1.0, 9)
+            _omt = 1.0 - _t
+            _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
+            _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
+            ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
+            _plotted_in_band = True
+
+        # fallback to ensure visible stems in sparse/edge cases
+        if not _plotted_in_band:
+            _n_force = int(np.clip(np.round(2 + 6 * _eff_cov), 2, 10))
+            _x_force = np.linspace(xa, xb, _n_force)
+            _z_force = np.interp(_x_force, x_curr_fill, z_curr_fill, left=np.nan, right=np.nan)
+            for _x, _z in zip(_x_force, _z_force):
+                if not np.isfinite(_z):
+                    continue
+                _h = veg_h * np.clip(1.0 + _veg_rng.normal(0.0, 0.20), 0.60, 1.35)
+                _curv = _veg_rng.uniform(-1.0, 1.0) * (1.20 * _bend_scale)
+                _tip_j = _veg_rng.uniform(-1.0, 1.0) * (0.95 * _tip_scale)
+                _p0x, _p0z = _x, _z
+                _p1x, _p1z = _x + _curv, _z + 0.54 * _h
+                _p2x, _p2z = _x + 0.5 * _curv + _tip_j, _z + _h
+                _t = np.linspace(0.0, 1.0, 9)
+                _omt = 1.0 - _t
+                _xc = (_omt * _omt) * _p0x + 2.0 * _omt * _t * _p1x + (_t * _t) * _p2x
+                _zc = (_omt * _omt) * _p0z + 2.0 * _omt * _t * _p1z + (_t * _t) * _p2z
+                ax.plot(_xc, _zc, color=veg_color, linewidth=veg_lw, alpha=0.95, zorder=6.2)
+            _plotted_in_band = True
+
+        _band_state["stems_u"] = stems_u
+        _band_state["bend_lat"] = bend_lat
+        _band_state["tip_lat"] = tip_lat
+        _band_state["h_lat"] = h_lat
+        _band_state["cluster_centers"] = cluster_centers
+        _band_state["cluster_ids"] = cluster_ids
+        _veg_run_state[band_key] = _band_state
+        _any_veg_plotted = _any_veg_plotted or _plotted_in_band
+
+    def _first_finite(*vals):
+        for _v in vals:
+            if _v is not None and np.isfinite(_v):
+                return float(_v)
+        return np.nan
+
+    _plot_veg_band(
+        dune_x_curr.get('ramp_toe', np.nan),
+        dune_x_curr.get('seaward_crest', dune_x_curr.get('ramp_crest', np.nan)),
+        _veg_cov['df'],
+        'df',
+    )
+    _plot_veg_band(
+        dune_x_curr.get('seaward_crest', dune_x_curr.get('ramp_crest', np.nan)),
+        dune_x_curr.get('lee_crest', np.nan),
+        _veg_cov['dt'],
+        'dt',
+    )
+    _plot_veg_band(
+        _first_finite(dune_x_curr.get('lee_crest'), dune_x_curr.get('crest_temp')),
+        _first_finite(dune_x_curr.get('lee_foot'), dune_x_curr.get('back_ref')),
+        _veg_cov['db'],
+        'db',
+    )
+
     # ---- Boundary conditions ----
-    # Use surface that fills NaN gaps with substrate for water-level fills
-    z_curr_for_sea = np.where(np.isfinite(z_curr_g), z_curr_g, z_sub_g)
+    # Use surface for water-level fills.
+    # * Inside the current profile extent   → profile elevation.
+    # * Seaward of the current shoreline    → sea level (0.0).  Using the
+    #   substrate fallback here can produce elevated values in the ocean area
+    #   (substrate extrapolation) which create a blank gap between the sea fill
+    #   and the profile line.
+    # * Landward NaN region (dike interior) → substrate elevation.
+    _x_curr_shore = float(
+        dune_x_curr.get(
+            'shoreline',
+            float(x_curr_fill[-1]) if x_curr_fill.size > 0 else xg_end,
+        )
+    )
+    z_curr_for_sea = np.where(
+        np.isfinite(z_curr_fill_g),
+        z_curr_fill_g,
+        np.where(xg > _x_curr_shore, 0.0, z_sub_g),
+    )
 
     # Compute seaward extent of the sea fill (used for xlim regardless of bc_info)
-    _x_ramp_toe_lim  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
-    _x_shoreline_lim = dune_x_curr.get('shoreline', x_curr[1:].max())
+    _x_ramp_toe_lim  = dune_x_curr.get('ramp_toe', x_curr_fill.max())
+    _x_shoreline_lim = dune_x_curr.get('shoreline', x_curr_fill.max())
     x_sea_end = _x_shoreline_lim + 0.1 * (_x_shoreline_lim - _x_ramp_toe_lim)
+    x_fill_right = x_lim_right if x_lim_right is not None else x_sea_end
+    # Keep sea-fill x coordinates monotonic (required by fill_between) even if a
+    # fixed shared x-limit is smaller than the current profile extent.
+    x_fill_right = max(float(x_fill_right), float(xg[-1]) + 1e-9)
 
     if bc_info is not None:
         twl = bc_info.get('total_water_level')
@@ -260,11 +648,11 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         wind_speed  = bc_info.get('wind_speed')
         wind_dir    = bc_info.get('wind_direction')
 
-        x_ramp_toe  = dune_x_curr.get('ramp_toe', x_curr[1:].max())
-        x_shoreline = dune_x_curr.get('shoreline', x_curr[1:].max())
+        x_ramp_toe  = dune_x_curr.get('ramp_toe', x_curr_fill.max())
+        x_shoreline = dune_x_curr.get('shoreline', x_curr_fill.max())
 
         # Extended profile grid to include the seaward visual margin
-        _xfill = np.concatenate([xg, [x_sea_end]])
+        _xfill = np.concatenate([xg, [x_fill_right]])
         #_zfill = np.concatenate([z_curr_g, [0.0]])
         _zfill = np.concatenate([z_curr_for_sea, [0.0]])
 
@@ -281,6 +669,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                     return xa + (level - za) / (zb - za) * (xb - xa)
             return xarr[last]
 
+        _is_overwash = False
         if twl is not None:
             _dune_crest = dune_z_curr.get('seaward_crest')
             _is_overwash = (_dune_crest is not None and twl >= _dune_crest)
@@ -288,23 +677,50 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 # Overwash: fill from x=0 all the way seaward
                 _z_back = dune_z_curr.get('back_ref',
                                           z_curr_for_sea[0] if len(z_curr_for_sea) > 0 else 0.0)
-                _xfill_ow = np.concatenate([[0.0], xg, [x_sea_end]])
+                _xfill_ow = np.concatenate([[0.0], xg, [x_fill_right]])
                 _zfill_ow = np.concatenate([[_z_back], z_curr_for_sea, [0.0]])
                 ax.fill_between(_xfill_ow, twl, _zfill_ow,
                                 where=(_zfill_ow <= twl),
                                 facecolor=c_sea, alpha=0.50, interpolate=True,
                                 zorder=1, label=f"TWL = {twl:.2f} m (overwash)")
-                ax.plot([0.0, x_sea_end], [twl, twl],
+                ax.plot([0.0, x_fill_right], [twl, twl],
                         color=c_sea, lw=1.8, linestyle=':', zorder=5)
             else:
                 # Find touch point then restrict fill to the seaward side only.
                 _tx_twl = _find_touch_x(_xfill, _zfill, twl)
-                ax.fill_between(_xfill, twl, _zfill,
-                                where=(_zfill <= twl) & (_xfill >= _tx_twl),
+                # Insert the exact touch-point so fill_between starts precisely
+                # at the profile/TWL intersection with no discretisation gap.
+                _ins = int(np.searchsorted(_xfill, _tx_twl))
+                _xfill_i = np.insert(_xfill, _ins, _tx_twl)
+                _zfill_i = np.insert(_zfill, _ins, twl)
+                ax.fill_between(_xfill_i, twl, _zfill_i,
+                                where=(_xfill_i >= _tx_twl),
                                 facecolor=c_sea, alpha=0.50, interpolate=True,
                                 zorder=1, label=f"TWL = {twl:.2f} m")
-                ax.plot([_tx_twl, x_sea_end], [twl, twl],
+                ax.plot([_tx_twl, x_fill_right], [twl, twl],
                         color=c_sea, lw=1.8, linestyle=':', zorder=5)
+
+        # Overwash flow arrows (high-water events), aligned with seaward→landward flow.
+        if twl is not None and twl > 5.0:
+            _flow_y = max(0.2, twl - 0.35)
+            if _is_overwash:
+                _flow_x = np.array([0.78, 0.58, 0.38, 0.18]) * x_fill_right
+                _flow_dx = np.full_like(_flow_x, -0.10 * x_fill_right)
+            else:
+                _flow_x = np.array([0.92, 0.80]) * x_fill_right
+                _flow_dx = np.full_like(_flow_x, -0.08 * x_fill_right)
+            ax.quiver(
+                _flow_x, np.full_like(_flow_x, _flow_y),
+                _flow_dx, np.zeros_like(_flow_dx),
+                angles="xy", scale_units="xy", scale=1,
+                width=0.0035, headwidth=5.2, headlength=6.8, headaxislength=5.8,
+                color="#1f78b4", zorder=7,
+            )
+            _flow_label_x = 0.5 * (_flow_x[0] + _flow_x[-1]) + 0.5 * abs(_flow_dx[0])
+            ax.text(
+                _flow_label_x, _flow_y + 0.35, r"$\vec{U}_w$",
+                ha="center", va="bottom", fontsize=11, color="#1f78b4", zorder=8,
+            )
 
         # BC annotation box (upper-right)
         bc_lines = []
@@ -326,28 +742,22 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                               edgecolor="0.4",
                               alpha=0.92))
 
-        # Sea fill on the right side: between final profile and TWL.
-        _sea_level = bc_info.get('total_water_level') if bc_info is not None else None
-        if _sea_level is not None:
-            wet = z_curr_for_sea <= _sea_level
-            # Keep only the wet segment connected to the right boundary (seaward side)
-            if wet[-1]:
-                sea_mask = np.zeros_like(wet, dtype=bool)
-                dry_before = np.where(~wet)[0]
-                if dry_before.size > 0:
-                    sea_mask[dry_before[-1] + 1:] = True
-                else:
-                    sea_mask[:] = True
-                ax.fill_between(xg,
-                                z_curr_for_sea,
-                                _sea_level,
-                                where=(sea_mask & (z_curr_for_sea < _sea_level)),
-                                interpolate=True,
-                                facecolor=c_sea,
-                                alpha=0.75,
-                                linewidth=0,
-                                zorder=0)
-                
+        # Wind arrow: skip during high-water events to avoid overlap with flow arrows.
+        if wind_speed is not None and (twl is None or twl <= 5.0):
+            _xw0 = 500.0
+            _yw0 = 6.0
+            _wind_mag = 0.12 * x_fill_right
+            ax.quiver(
+                [_xw0], [_yw0], [-_wind_mag], [0.0],
+                angles="xy", scale_units="xy", scale=1,
+                width=0.0046, headwidth=6.2, headlength=7.8, headaxislength=6.8,
+                color="0.2", zorder=9,
+            )
+            ax.text(
+                _xw0 - 0.5 * _wind_mag, _yw0 + 0.65, r"$\vec{U}_{wind}$",
+                ha="center", va="bottom", fontsize=11, color="0.2", zorder=10,
+            )
+
     # Fill the substrate body with a solid colour to mask any erosion/deposition
     # fills or water fills that extend into the non-erodible dike structure.
     # Only fill up to the dike seaward toe (substrate_x[4] / substrate_z[4]);
@@ -367,14 +777,70 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                  fontsize=14)
     ax.tick_params(labelsize=13)
     ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.6)
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18),
+
+    class _VegColormapHandler(HandlerBase):
+        """Renders a truncated-Greens strip with ticks/labels below it."""
+        def create_artists(self, legend, orig_handle,
+                           xdescent, ydescent, width, height, fontsize, trans):
+            n = 64
+            bar_y = ydescent + 0.56 * height
+            bar_h = 0.25 * height
+            artists = []
+            for i in range(n):
+                x0 = xdescent + width * i / n
+                color = _veg_cmap(_veg_norm(i / (n - 1)))
+                artists.append(
+                    FancyBboxPatch(
+                        (x0, bar_y), width / n + 0.4, bar_h,
+                        boxstyle="square,pad=0",
+                        linewidth=0, facecolor=color,
+                        transform=trans,
+                    )
+                )
+            for frac, lbl in ((0.0, "0"), (0.5, "0.5"), (1.0, "1")):
+                xt = xdescent + frac * width
+                artists.append(
+                    Line2D(
+                        [xt, xt],
+                        [bar_y - 0.13 * height, bar_y],
+                        color="0.2",
+                        linewidth=0.8,
+                        transform=trans,
+                    )
+                )
+                artists.append(
+                    Text(
+                        xt,
+                        ydescent - 0.03 * height,
+                        lbl,
+                        ha="center",
+                        va="top",
+                        fontsize=fontsize * 0.64,
+                        color="0.15",
+                        transform=trans,
+                    )
+                )
+            return artists
+
+    _handles, _labels = ax.get_legend_handles_labels()
+    _handler_map = {}
+    _veg_proxy = Patch(facecolor='none', edgecolor='none')
+    _handles.append(_veg_proxy)
+    _labels.append('Vegetation cover')
+    _handler_map[_veg_proxy] = _VegColormapHandler()
+
+    ax.legend(_handles, _labels, handler_map=_handler_map,
+              loc='upper center', bbox_to_anchor=(0.5, -0.18),
               ncol=3, fontsize=11, frameon=True)
 
-    ax.set_xlim(left=0, right=(x_lim_right if x_lim_right is not None else x_sea_end))
+    _x_left = 0.0 if x_lim_left is None else float(x_lim_left)
+    _y_bottom = 0.0 if y_lim_bottom is None else float(y_lim_bottom)
+
+    ax.set_xlim(left=_x_left, right=x_fill_right)
     if y_lim_top is not None:
-        ax.set_ylim(bottom=0, top=y_lim_top)
+        ax.set_ylim(bottom=_y_bottom, top=y_lim_top)
     else:
-        ax.set_ylim(bottom=0)
+        ax.set_ylim(bottom=_y_bottom)
 
     fig.tight_layout()
 
@@ -384,6 +850,41 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
     print(f"Profile snapshot saved to {plot_filename}")
     return plot_filename
+
+
+def _safe_save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
+                                substrate_x, substrate_z, output_base, timestep,
+                                progress_pct, bc_info=None, vegetation_info=None,
+                                y_lim_top=None, y_lim_bottom=None,
+                                x_lim_right=None, x_lim_left=None):
+    """
+    Best-effort wrapper around snapshot plotting that keeps plotting isolated
+    from live model state and never interrupts the simulation.
+    """
+    try:
+        return _save_profile_snapshot(
+            dict(dune_x_init),
+            dict(dune_z_init),
+            dict(dune_x_curr),
+            dict(dune_z_curr),
+            np.asarray(substrate_x, dtype=float).copy(),
+            np.asarray(substrate_z, dtype=float).copy(),
+            output_base,
+            timestep,
+            progress_pct,
+            bc_info=dict(bc_info) if bc_info is not None else None,
+            vegetation_info=dict(vegetation_info) if vegetation_info is not None else None,
+            y_lim_top=y_lim_top,
+            y_lim_bottom=y_lim_bottom,
+            x_lim_right=x_lim_right,
+            x_lim_left=x_lim_left,
+        )
+    except Exception as exc:
+        print(
+            f"Warning: snapshot plotting failed at timestep {timestep} "
+            f"({progress_pct:.1f}%); continuing without this frame. Error: {exc}"
+        )
+        return None
 
 
 def _create_evolution_movie(frame_paths, output_path, fps=2):
@@ -427,9 +928,105 @@ def _create_evolution_movie(frame_paths, output_path, fps=2):
     print(f"Evolution movie saved to {output_path}")
 
 
+def _create_evolution_video(frame_paths, output_path, fps=2):
+    """
+    Create an MP4 video from a list of snapshot PNG files.
+
+    Parameters
+    ----------
+    frame_paths : list of str
+        Ordered list of PNG file paths to stitch into the video.
+    output_path : str
+        Destination path for the MP4 file.
+    fps : int, optional
+        Frames per second (default 2).
+    """
+    try:
+        import imageio.v2 as imageio
+    except ImportError:
+        print("Warning: imageio is not installed – cannot create evolution MP4. "
+              "Install it with: pip install imageio imageio-ffmpeg")
+        return
+
+    valid_paths = [path for path in frame_paths if os.path.isfile(path)]
+    if not valid_paths:
+        print("Warning: no snapshot frames found; evolution MP4 not created.")
+        return
+
+    if fps <= 0:
+        print(f"Warning: invalid fps={fps}; using fps=2 for MP4 export.")
+        fps = 2
+
+    # Read and normalize first frame (drop alpha/grayscale, enforce uint8)
+    first_frame = np.asarray(imageio.imread(valid_paths[0]))
+    if first_frame.ndim == 2:
+        first_frame = np.stack([first_frame] * 3, axis=-1)
+    elif first_frame.ndim == 3 and first_frame.shape[2] == 4:
+        first_frame = first_frame[:, :, :3]
+    first_frame = first_frame.astype(np.uint8, copy=False)
+
+    # yuv420p requires even width/height; trim by one pixel when needed.
+    target_h = first_frame.shape[0] - (first_frame.shape[0] % 2)
+    target_w = first_frame.shape[1] - (first_frame.shape[1] % 2)
+    if target_h <= 0 or target_w <= 0:
+        print("Warning: invalid frame size; evolution MP4 not created.")
+        return
+
+    def _to_target_rgb(frame):
+        frame = np.asarray(frame)
+        if frame.ndim == 2:
+            frame = np.stack([frame] * 3, axis=-1)
+        elif frame.ndim == 3 and frame.shape[2] == 4:
+            frame = frame[:, :, :3]
+        frame = frame.astype(np.uint8, copy=False)
+
+        # Fit to target by top-left crop + zero padding (no external deps).
+        out = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        h = min(target_h, frame.shape[0])
+        w = min(target_w, frame.shape[1])
+        out[:h, :w, :] = frame[:h, :w, :3]
+        return out
+
+    try:
+        if os.path.isfile(output_path):
+            os.remove(output_path)
+
+        written_frames = 0
+        with imageio.get_writer(
+            output_path,
+            format="FFMPEG",
+            fps=float(fps),
+            codec="libx264",
+            pixelformat="yuv420p",
+            macro_block_size=1
+        ) as writer:
+            writer.append_data(_to_target_rgb(first_frame))
+            written_frames += 1
+            for path in valid_paths[1:]:
+                frame = imageio.imread(path)
+                writer.append_data(_to_target_rgb(frame))
+                written_frames += 1
+
+        if written_frames == 0 or (not os.path.isfile(output_path)) or os.path.getsize(output_path) == 0:
+            if os.path.isfile(output_path):
+                os.remove(output_path)
+            print("Warning: evolution MP4 was empty; file removed.")
+            return
+    except Exception as exc:
+        if os.path.isfile(output_path):
+            os.remove(output_path)
+        print(f"Warning: failed to create evolution MP4 at {output_path}. Error: {exc}")
+        return
+
+    print(f"Evolution movie saved to {output_path}")
+
+
 def run_model(config_path, check_mass_conservation=False,
               plot_evolution=False, plot_evolution_interval=5.0,
-              save_evolution_movie=False, skip_first_step_conservation=False):
+              save_evolution_movie=False, skip_first_step_conservation=False,
+              manual_plot_limits=False, manual_plot_y_lim_top=None,
+              manual_plot_y_lim_bottom=None, manual_plot_x_lim_right=None,
+              manual_plot_x_lim_left=None, save_evolution_video=False):
     """
     Run the CS model using a YAML configuration file.
 
@@ -455,10 +1052,35 @@ def run_model(config_path, check_mass_conservation=False,
         simulation ends.  The file is saved as ``<output_base>_evolution.gif``
         alongside the model output.  Requires ``plot_evolution=True`` and
         Pillow (``pip install Pillow``).  Default is False.
+    save_evolution_video : bool, optional
+        If True, stitch all saved snapshots into an MP4 video after the
+        simulation ends. The file is saved as ``<output_base>_evolution.mp4``
+        alongside the model output. Requires ``plot_evolution=True`` and
+        imageio/imageio-ffmpeg (``pip install imageio imageio-ffmpeg``).
+        Default is False.
     skip_first_step_conservation : bool, optional
         If True, the first model time step is excluded from the mass conservation
         analysis.  Passed directly to ``check_mass_conservation`` when
         ``check_mass_conservation=True``.  Default is False.
+    manual_plot_limits : bool, optional
+        If True, manually provided plot limits are used for evolution snapshots.
+        If False, automatic limits are used.  Default is False.
+    manual_plot_y_lim_top : float or None, optional
+        Manual upper y-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, automatic y-limit is kept.
+        Default is None.
+    manual_plot_y_lim_bottom : float or None, optional
+        Manual lower y-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, defaults to 0.
+        Default is None.
+    manual_plot_x_lim_right : float or None, optional
+        Manual right x-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, automatic x-limit is kept.
+        Default is None.
+    manual_plot_x_lim_left : float or None, optional
+        Manual left x-axis limit (meters) for evolution snapshots when
+        ``manual_plot_limits=True``. If None, defaults to 0.
+        Default is None.
 
     Returns
     -------
@@ -740,8 +1362,77 @@ def run_model(config_path, check_mass_conservation=False,
         _plot_y_max = max(_plot_y_max, (dune_z['seaward_crest'] + 6.0) * 1.15)
         # Pre-compute a fixed x-axis right limit from the initial profile so
        # that all GIF frames share the same horizontal extent.  Use 20 %
-       # margin beyond the initial shoreline (same shape as the dynamic formula but evaluated only once).
+        # margin beyond the initial shoreline (same shape as the dynamic formula but evaluated only once).
         _plot_x_max = dune_x['shoreline'] + 0.2 * (dune_x['shoreline'] - dune_x['ramp_toe'])
+        _plot_y_min = 0.0
+        _plot_x_min = 0.0
+
+        if manual_plot_limits:
+            if manual_plot_y_lim_top is not None:
+                if float(manual_plot_y_lim_top) <= 0.0:
+                    raise ValueError("manual_plot_y_lim_top must be > 0 when provided.")
+                _plot_y_max = float(manual_plot_y_lim_top)
+            if manual_plot_y_lim_bottom is not None:
+                _plot_y_min = float(manual_plot_y_lim_bottom)
+            if manual_plot_x_lim_right is not None:
+                if float(manual_plot_x_lim_right) <= 0.0:
+                    raise ValueError("manual_plot_x_lim_right must be > 0 when provided.")
+                _plot_x_max = float(manual_plot_x_lim_right)
+            if manual_plot_x_lim_left is not None:
+                _plot_x_min = float(manual_plot_x_lim_left)
+
+            if _plot_y_max <= _plot_y_min:
+                raise ValueError(
+                    "manual y-axis limits are invalid: manual_plot_y_lim_top "
+                    "must be greater than manual_plot_y_lim_bottom."
+                )
+            if _plot_x_max <= _plot_x_min:
+                raise ValueError(
+                    "manual x-axis limits are invalid: manual_plot_x_lim_right "
+                    "must be greater than manual_plot_x_lim_left."
+                )
+        elif (
+            (manual_plot_y_lim_top is not None)
+            or (manual_plot_y_lim_bottom is not None)
+            or (manual_plot_x_lim_right is not None)
+            or (manual_plot_x_lim_left is not None)
+        ):
+            print(
+                "Warning: manual plot limits were provided "
+                "but manual_plot_limits=False; automatic plot limits are used."
+            )
+
+        # Save an explicit initial frame so GIF/MP4 always start at timestep 0.
+        _bc_info_0 = None
+        if _total_steps > 0:
+            _bc_info_0 = {
+                'wave_height': wave_time_series[0],
+                'wave_period': wave_period_time_series[0],
+                'swl': swl_time_series[0],
+                'runup': _r_all[0],
+                'total_water_level': _twl_all[0],
+                'wind_speed': wind_speed_time_series[0],
+                'wind_direction': wind_dir_time_series[0],
+            }
+        _veg_info_0 = {
+            'rhov_df': rhov_df,
+            'rhov_dt': rhov_dt,
+            'rhov_db': rhov_db,
+            'rhov_df2': rhov_df2 if p.vegcount == 1 else 0.0,
+            'rhov_dt2': rhov_dt2 if p.vegcount == 1 else 0.0,
+            'rhov_db2': rhov_db2 if p.vegcount == 1 else 0.0,
+        }
+        _frame_path_0 = _safe_save_profile_snapshot(
+            results['dune_x'][0], results['dune_z'][0],
+            results['dune_x'][0], results['dune_z'][0],
+            substrate_x, substrate_z,
+            _plot_output_base, 0, 0.0,
+            bc_info=_bc_info_0, vegetation_info=_veg_info_0,
+            y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+            x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
+        )
+        if _frame_path_0 is not None:
+            _plot_saved_frames.append(_frame_path_0)
         
     ############################################################################
     # START SIMULATION
@@ -1085,6 +1776,14 @@ def run_model(config_path, check_mass_conservation=False,
                 'wind_speed': wind_speed_time_series[i],
                 'wind_direction': wind_dir_time_series[i],
             }
+            _veg_info = {
+                'rhov_df': rhov_df,
+                'rhov_dt': rhov_dt,
+                'rhov_db': rhov_db,
+                'rhov_df2': rhov_df2 if p.vegcount == 1 else 0.0,
+                'rhov_dt2': rhov_dt2 if p.vegcount == 1 else 0.0,
+                'rhov_db2': rhov_db2 if p.vegcount == 1 else 0.0,
+            }
 
             # ---- Erosion-event snapshots ----
             _is_erosive = (deltavramp_ero > 0)
@@ -1093,12 +1792,14 @@ def run_model(config_path, check_mass_conservation=False,
                 _erosion_active = True
                 _erosion_event_steps = 1
                 _erosion_mid_saved = False
-                _fp = _save_profile_snapshot(
+                _fp = _safe_save_profile_snapshot(
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    bc_info=_bc_info, vegetation_info=_veg_info,
+                    y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                    x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
@@ -1107,36 +1808,42 @@ def run_model(config_path, check_mass_conservation=False,
                 if not _erosion_mid_saved and _erosion_event_steps >= 10:
                     # Mid-event snapshot (after at least 10 erosive steps)
                     _erosion_mid_saved = True
-                    _fp = _save_profile_snapshot(
+                    _fp = _safe_save_profile_snapshot(
                         results['dune_x'][0], results['dune_z'][0],
                         dune_x, dune_z,
                         substrate_x, substrate_z,
                         _plot_output_base, i + 1, current_pct,
-                        bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                        bc_info=_bc_info, vegetation_info=_veg_info,
+                        y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                        x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                     )
                     if _fp is not None:
                         _plot_saved_frames.append(_fp)
             elif not _is_erosive and _erosion_active:
                 # Last timestep of the erosion event – save end-of-event snapshot
                 _erosion_active = False
-                _fp = _save_profile_snapshot(
+                _fp = _safe_save_profile_snapshot(
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    bc_info=_bc_info, vegetation_info=_veg_info,
+                    y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                    x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                 )
                 if _fp is not None:
                     _plot_saved_frames.append(_fp)
 
             # ---- Regular interval snapshots ----
             if current_pct >= _plot_next_pct:
-                _frame_path = _save_profile_snapshot(
+                _frame_path = _safe_save_profile_snapshot(
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
                     _plot_output_base, i + 1, current_pct,
-                    bc_info=_bc_info, y_lim_top=_plot_y_max, x_lim_right=_plot_x_max
+                    bc_info=_bc_info, vegetation_info=_veg_info,
+                    y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
+                    x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
                 )
                 if _frame_path is not None:
                     _plot_saved_frames.append(_frame_path)
@@ -1157,10 +1864,21 @@ def run_model(config_path, check_mass_conservation=False,
 
     if save_evolution_movie and not plot_evolution:
         print("Warning: save_evolution_movie=True has no effect when plot_evolution=False.")
+    if save_evolution_video and not plot_evolution:
+        print("Warning: save_evolution_video=True has no effect when plot_evolution=False.")
 
     if plot_evolution and save_evolution_movie and _plot_saved_frames:
         movie_path = f"{_plot_output_base}_evolution.gif"
-        _create_evolution_movie(_plot_saved_frames, movie_path)
+        try:
+            _create_evolution_movie(_plot_saved_frames, movie_path)
+        except Exception as exc:
+            print(f"Warning: evolution GIF creation failed; continuing without GIF. Error: {exc}")
+    if plot_evolution and save_evolution_video and _plot_saved_frames:
+        video_path = f"{_plot_output_base}_evolution.mp4"
+        try:
+            _create_evolution_video(_plot_saved_frames, video_path)
+        except Exception as exc:
+            print(f"Warning: evolution MP4 creation failed; continuing without MP4. Error: {exc}")
     
     ############################################################################
     # MASS CONSERVATION CHECK (if requested)
