@@ -2058,11 +2058,13 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     z_base = dune_z['ramp_dike_temp']
                     #V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
                     V = trapezoid_positive(z_dense - z_base, x_dense)
+                    
 
 #                    if s_potential == s:
 #                        return -vcrestnew
 #                    else:
                     return V - deltavcrest
+                    
                 
                 # check detached lee side
                 if dune_x['crest_temp'] > dune_x['lee_crest'] and dune_z['crest_temp'] == dune_z['lee_crest'] and dune_z['lee_crest'] < dune_z['ramp_dike_temp']: #substrate_z[2]: #detached with flat crest behind and dune_x['lee_crest'] <= substrate_x[2]
@@ -2179,7 +2181,8 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     # --- lateral overflow mapping ---
                     # triangular cross-section: area = 0.5 * base * height -> base = 2 * area / height
                     delta_ys = 2*vramp_lateral / s_new_c
-                
+                    delta_ys = vramp_lateral / s_new_c
+
                     # update positions
                     ys_new_c = dune_x['ramp_toe'] + delta_ys            # seaward dune foot
                     ysprim_new_c = ysprim_tri + delta_ys      # seaward pivot
