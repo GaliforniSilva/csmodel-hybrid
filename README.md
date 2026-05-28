@@ -140,7 +140,8 @@ results = run_model("config_vegetation.yaml")
 - `skip_first_step_conservation=False`  
   Excludes the first model step from conservation diagnostics when enabled.
 - `plot_evolution=False`  
-  Saves profile snapshots during the run as `<output_base>_<timestep>.png`.
+  Saves profile snapshots during the run as `<output_base>_<timestep>.png` inside
+  `<output_base>_frames/`.
 - `plot_evolution_interval=5.0`  
   Snapshot spacing as percent of total simulation duration.
 - `save_evolution_movie=False`  
@@ -170,7 +171,7 @@ For this example, the model can produce:
 - `cs_model_oosteroever_mass_conservation.txt`  
   Conservation summary report (when `check_mass_conservation=True`).
 - `cs_model_oosteroever_<timestep>.png`  
-  Evolution snapshots (when `plot_evolution=True`).
+  Evolution snapshots saved in `cs_model_oosteroever_frames/` (when `plot_evolution=True`).
 - `cs_model_oosteroever_evolution.gif`  
   GIF movie from snapshots (when `save_evolution_movie=True`).
 - `cs_model_oosteroever_evolution.mp4`  
@@ -208,7 +209,8 @@ run_model(
 
 After completion:
 * The output pickle file is saved using `output.filename` from the YAML.
-* Optional snapshots/GIF/MP4 are saved next to that output file.
+* Snapshot PNGs are saved in a dedicated `<output_base>_frames/` folder.
+* Optional GIF/MP4 are saved next to the output pickle file.
 * If enabled, the mass conservation report is printed and saved to a `_mass_conservation.txt` file.
 
 
@@ -287,6 +289,5 @@ Hallin, C., Larson, M., & Hanson, H. (2019).
 *Simulating beach and dune evolution at decadal to centennial scale under rising sea levels.*  
 PLoS ONE, 14(4), e0215651.  
 https://doi.org/10.1371/journal.pone.0215651
-
 
 
