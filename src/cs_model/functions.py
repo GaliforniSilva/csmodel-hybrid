@@ -91,6 +91,19 @@ def trapezoid_positive(y, x):
         return np.trapz(y_clip, x)
 
 def load_config(path="config.yaml"):
+    """
+    Load a YAML configuration file.
+
+    Parameters
+    ----------
+    path : str, optional
+        Path to the YAML file. Default is ``config.yaml``.
+
+    Returns
+    -------
+    dict
+        Parsed YAML content.
+    """
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
@@ -161,6 +174,29 @@ def total_volume(dune_x, dune_z, substrate_x, substrate_z):
 
 def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
                    x_min=None, x_max=None):
+    """
+    Integrate dune volume above substrate between optional x-limits.
+
+    Parameters
+    ----------
+    dune_x : dict
+        Dune profile x-coordinates keyed by pivot name.
+    dune_z : dict
+        Dune profile elevations keyed by pivot name.
+    substrate_x : array-like
+        Substrate x-coordinates.
+    substrate_z : array-like
+        Substrate elevations.
+    x_min : float or None, optional
+        Left integration limit. Uses profile minimum when ``None``.
+    x_max : float or None, optional
+        Right integration limit. Uses profile maximum when ``None``.
+
+    Returns
+    -------
+    float
+        Integrated positive sediment volume (m³/m).
+    """
 
     # Remove None values
     dune_x = {k: v for k, v in dune_x.items() if v is not None}
@@ -261,23 +297,23 @@ def vegNield(dt,sold,snew, ylnew, ylold, ysnew, ysold, srampnew, srampold, betas
     Vegetation growth function adapted from Nield and Baas, 2008 and DUBEVEG model (Keijsers et. al., 2016), for two species
     '''
 
-    # define vertices values for both species
-    sp1_peak = 0.2 # growth peak for species 1
-    sp2_peak = 0.05 # growth peak for species 2
+    # Define vertex values for both species.
+    sp1_peak = 0.2  # Growth peak for species 1.
+    sp2_peak = 0.05  # Growth peak for species 2.
 
     # Convert time step to years
-    dtYear = dt/(3600*24*365) # convert time step to years
+    dtYear = dt/(3600*24*365)  # Convert time step to years.
 
     # species 1 - pioneer vegetation (e.g. Ammophila arenaria)
     
-    # sedimentation
+    # Sedimentation.
     x1_spec1 = -0.6*dtYear
     x2_spec1 = 0.2*dtYear
     x3_spec1 = 0.6*dtYear
     x4_spec1 = 2.0*dtYear
     x5_spec1 = 2.2*dtYear
     
-    #growth
+    # Growth.
     y1_spec1 = -0.5*dtYear
     y2_spec1 = 0.0*dtYear
     y3_spec1 = sp1_peak*dtYear 
@@ -297,17 +333,17 @@ def vegNield(dt,sold,snew, ylnew, ylold, ysnew, ysold, srampnew, srampold, betas
     y4_spec2 = 0.0*dtYear
     y5_spec2 = -0.5*dtYear
 
-    #calculate the sedimentation map
+    # Calculate the sedimentation map.
     dh_df = 0.0
     if (abs(srampnew-srampold)>0.0):
         dh_df = srampnew-srampold
-    elif (abs(ysnew-ysold)>0.0): #movement of the dunetoe
+    elif (abs(ysnew-ysold)>0.0):  # Movement of the dune toe.
         dh_df=(ysnew-ysold)*betas
             
     dh_dt = (snew-sold)
     dh_db = -(ylnew-ylold)*betal
 
-    # calculate slopes between vertices
+    # Calculate slopes between vertices.
     s12_spec1=(y2_spec1-y1_spec1)/(x2_spec1-x1_spec1)
     s23_spec1=(y3_spec1-y2_spec1)/(x3_spec1-x2_spec1)
     s34_spec1=(y4_spec1-y3_spec1)/(x4_spec1-x3_spec1)
@@ -318,7 +354,7 @@ def vegNield(dt,sold,snew, ylnew, ylold, ysnew, ysold, srampnew, srampold, betas
     s34_spec2=(y4_spec2-y3_spec2)/(x4_spec2-x3_spec2)
     s45_spec2=(y5_spec2-y4_spec2)/(x5_spec2-x4_spec2)
 
-    # calculate the new vegetation height for dune front for species 1
+    # Calculate the new vegetation cover at the dune front for species 1.
     if (dh_df<x1_spec1):
         rhov_dfnew_spec1 = 0.0001
     elif (dh_df>=x1_spec1 and dh_df<x2_spec1):
@@ -332,7 +368,7 @@ def vegNield(dt,sold,snew, ylnew, ylold, ysnew, ysold, srampnew, srampold, betas
     elif (dh_df>=x5_spec1):
         rhov_dfnew_spec1 = rhov_df_spec1 + y5_spec1
 
-    # calculate the new vegetation height for dune top for species 1
+    # Calculate the new vegetation cover at the dune top for species 1.
     if (dh_dt<x1_spec1):
         rhov_dtnew_spec1 = 0.0
     elif (dh_dt>=x1_spec1 and dh_dt<x2_spec1):
@@ -346,7 +382,7 @@ def vegNield(dt,sold,snew, ylnew, ylold, ysnew, ysold, srampnew, srampold, betas
     elif (dh_dt>=x5_spec1):
         rhov_dtnew_spec1 = rhov_dt_spec1 + y5_spec1
 
-    # calculate the new vegetation height for dune back for species 1
+    # Calculate the new vegetation cover at the dune back for species 1.
     if (dh_db<x1_spec1):
         rhov_dbnew_spec1 = 0.0
     elif (dh_db>=x1_spec1 and dh_db<x2_spec1):
@@ -360,7 +396,8 @@ def vegNield(dt,sold,snew, ylnew, ylold, ysnew, ysold, srampnew, srampold, betas
     elif (dh_db>=x5_spec1):
         rhov_dbnew_spec1 = rhov_db_spec1 + y5_spec1
 
-    # calculate the new vegetation height for dune front for species 2 only if there are species 1 or 2 already there
+    # Calculate the dune-front vegetation cover for species 2 only when
+    # species 1 or species 2 is already established.
 
     if rhov_dfnew_spec1 > 0.5 or rhov_df_spec2 > 0.0:
         if (dh_df<x1_spec2):
@@ -2880,4 +2917,3 @@ def nour(i, iv, volat, volad, volab, volrb, maxnour):
             iv += 1
 
     return vnourd, vnourb, vnourbar, iv
-

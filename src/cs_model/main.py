@@ -1361,7 +1361,7 @@ def run_model(config_path, check_mass_conservation=False,
         # Also ensure the initial dune crest (+ 0.5 m buffer) fits within the axis
         _plot_y_max = max(_plot_y_max, (dune_z['seaward_crest'] + 6.0) * 1.15)
         # Pre-compute a fixed x-axis right limit from the initial profile so
-       # that all GIF frames share the same horizontal extent.  Use 20 %
+        # that all GIF frames share the same horizontal extent. Use 20 %
         # margin beyond the initial shoreline (same shape as the dynamic formula but evaluated only once).
         _plot_x_max = dune_x['shoreline'] + 0.2 * (dune_x['shoreline'] - dune_x['ramp_toe'])
         _plot_y_min = 0.0
@@ -1690,13 +1690,15 @@ def run_model(config_path, check_mass_conservation=False,
         #delta_vbeach_volume_time_series[i] = vbeach - vbeach_phantom #change based on the phantom
         #delta_vbeachtot_volume_time_series[i] = vbeachtotnew - vbeachtot_phantom #beachtot change based on phantom
 
-        ####### CALCULATE CONSERVATION METRICS #######
-        # Calculate current volumes
+        # ------------------------------------------------------------------
+        # CONSERVATION METRICS
+        # ------------------------------------------------------------------
+        # Calculate current compartment volumes.
         current_volumes = calculate_compartment_volumes(
             dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot
         )
         
-        # Prepare flux dictionary for conservation calculation
+        # Build the per-step flux dictionary used by the conservation checker.
         fluxes = {
             'qs_ramp': qs_ramp,
             'qs_crest': qs_crest,
@@ -1709,21 +1711,21 @@ def run_model(config_path, check_mass_conservation=False,
             'nour_bar': vnourbar[i]
         }
 
-        # Store nourishment volumes applied this timestep
+        # Store nourishment volumes applied at this timestep.
         results['nourishment']['dune'].append(vnourd[i])
         results['nourishment']['beach'].append(vnourb[i])
         results['nourishment']['bar'].append(vnourbar[i])
         
-        # Calculate conservation metrics for this timestep
+        # Compute and store per-step conservation diagnostics.
         conservation_metrics = calculate_timestep_conservation(
             current_volumes, prev_volumes, fluxes, p.dt, initial_volumes
         )
         
-        # Store conservation metrics
+        # Append all conservation diagnostics to the output dictionary.
         for key, value in conservation_metrics.items():
             results['conservation'][key].append(value)
         
-        # Update previous volumes for next iteration
+        # Update previous volumes for the next iteration.
         prev_volumes = current_volumes.copy()
         
         ####### STORE OUTPUTS #######
