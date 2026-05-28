@@ -123,11 +123,95 @@ python run_example_katwijk.py
 python run_example_oosteroever.py
 ```
 
+You can also run directly from Python and control runtime flags:
+
+```python
+from cs_model.main import run_model
+
+results = run_model("config_vegetation.yaml")
+```
+
+### `run_model(...)` flags (runtime options)
+
+`run_model` takes a YAML config path plus optional keyword flags:
+
+- `check_mass_conservation=False`  
+  Runs end-of-simulation sediment conservation diagnostics and writes a text report.
+- `skip_first_step_conservation=False`  
+  Excludes the first model step from conservation diagnostics when enabled.
+- `plot_evolution=False`  
+  Saves profile snapshots during the run as `<output_base>_<timestep>.png` inside
+  `<output_base>_frames/`.
+- `plot_evolution_interval=5.0`  
+  Snapshot spacing as percent of total simulation duration.
+- `save_evolution_movie=False`  
+  Exports all saved snapshots to `<output_base>_evolution.gif` (requires `plot_evolution=True`).
+- `save_evolution_video=False`  
+  Exports all saved snapshots to `<output_base>_evolution.mp4` (requires `plot_evolution=True`).
+- `manual_plot_limits=False`  
+  Enables manual plotting limits for evolution snapshots.
+- `manual_plot_y_lim_top=None`, `manual_plot_y_lim_bottom=None`  
+  Manual vertical axis limits (m) when `manual_plot_limits=True`.
+- `manual_plot_x_lim_right=None`, `manual_plot_x_lim_left=None`  
+  Manual horizontal axis limits (m) when `manual_plot_limits=True`.
+
+### Plotting and saving outputs
+
+The output basename is taken from the YAML key:
+
+```yaml
+output:
+  filename: cs_model_oosteroever.pkl
+```
+
+For this example, the model can produce:
+
+- `cs_model_oosteroever.pkl`  
+  Main serialized results dictionary.
+- `cs_model_oosteroever_mass_conservation.txt`  
+  Conservation summary report (when `check_mass_conservation=True`).
+- `cs_model_oosteroever_<timestep>.png`  
+  Evolution snapshots saved in `cs_model_oosteroever_frames/` (when `plot_evolution=True`).
+- `cs_model_oosteroever_evolution.gif`  
+  GIF movie from snapshots (when `save_evolution_movie=True`).
+- `cs_model_oosteroever_evolution.mp4`  
+  MP4 movie from snapshots (when `save_evolution_video=True`).
+
+### Common run modes
+
+1. Fast run without diagnostics or plots:
+
+```python
+run_model("config.yaml")
+```
+
+2. Conservation-focused run:
+
+```python
+run_model(
+    "config.yaml",
+    check_mass_conservation=True,
+    skip_first_step_conservation=False,
+)
+```
+
+3. Snapshot + GIF + MP4 export:
+
+```python
+run_model(
+    "config.yaml",
+    plot_evolution=True,
+    plot_evolution_interval=5.0,
+    save_evolution_movie=True,
+    save_evolution_video=True,
+)
+```
+
 After completion:
-* The output pickle file will be saved in the directory specified in the YAML (e.g., `cs_model_oosteroever.pkl`).
-* Each example automatically generates a plot for visualization.
-* A mass conservation report is automatically generated and displayed in the terminal.
-* A mass conservation summary file is saved alongside the output (e.g., `cs_model_oosteroever_mass_conservation.txt`).
+* The output pickle file is saved using `output.filename` from the YAML.
+* Snapshot PNGs are saved in a dedicated `<output_base>_frames/` folder.
+* Optional GIF/MP4 are saved next to the output pickle file.
+* If enabled, the mass conservation report is printed and saved to a `_mass_conservation.txt` file.
 
 
 ## Sediment Conservation
@@ -205,7 +289,5 @@ Hallin, C., Larson, M., & Hanson, H. (2019).
 *Simulating beach and dune evolution at decadal to centennial scale under rising sea levels.*  
 PLoS ONE, 14(4), e0215651.  
 https://doi.org/10.1371/journal.pone.0215651
-
-
 
 

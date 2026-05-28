@@ -1041,7 +1041,8 @@ def run_model(config_path, check_mass_conservation=False,
         If True, save cross-shore profile evolution snapshots at regular intervals
         during the simulation.  Each snapshot shows the current profile against the
         initial profile (with deposition/erosion shading) and is saved as
-        ``<output_base>_<timestep>.png`` in the same directory as the output file.
+        ``<output_base>_<timestep>.png`` inside a created
+        ``<output_base>_frames/`` directory.
         Default is False.
     plot_evolution_interval : float, optional
         Interval between snapshots expressed as a percentage of the total simulation
@@ -1333,6 +1334,11 @@ def run_model(config_path, check_mass_conservation=False,
     output_filename = config.get('output', {}).get('filename', 'cs_model_results.pkl')
     if plot_evolution:
         _plot_output_base = os.path.splitext(output_filename)[0]
+        _plot_output_dir = os.path.dirname(_plot_output_base) or "."
+        _plot_output_name = os.path.basename(_plot_output_base)
+        _plot_frames_dir = os.path.join(_plot_output_dir, f"{_plot_output_name}_frames")
+        os.makedirs(_plot_frames_dir, exist_ok=True)
+        _plot_frame_base = os.path.join(_plot_frames_dir, _plot_output_name)
         _plot_next_pct = float(plot_evolution_interval)
         _total_steps = len(wave_time_series)
         _plot_saved_frames = []
@@ -1426,7 +1432,7 @@ def run_model(config_path, check_mass_conservation=False,
             results['dune_x'][0], results['dune_z'][0],
             results['dune_x'][0], results['dune_z'][0],
             substrate_x, substrate_z,
-            _plot_output_base, 0, 0.0,
+            _plot_frame_base, 0, 0.0,
             bc_info=_bc_info_0, vegetation_info=_veg_info_0,
             y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
             x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
@@ -1793,7 +1799,7 @@ def run_model(config_path, check_mass_conservation=False,
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
-                    _plot_output_base, i + 1, current_pct,
+                    _plot_frame_base, i + 1, current_pct,
                     bc_info=_bc_info, vegetation_info=_veg_info,
                     y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
                     x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
@@ -1809,7 +1815,7 @@ def run_model(config_path, check_mass_conservation=False,
                         results['dune_x'][0], results['dune_z'][0],
                         dune_x, dune_z,
                         substrate_x, substrate_z,
-                        _plot_output_base, i + 1, current_pct,
+                        _plot_frame_base, i + 1, current_pct,
                         bc_info=_bc_info, vegetation_info=_veg_info,
                         y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
                         x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
@@ -1823,7 +1829,7 @@ def run_model(config_path, check_mass_conservation=False,
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
-                    _plot_output_base, i + 1, current_pct,
+                    _plot_frame_base, i + 1, current_pct,
                     bc_info=_bc_info, vegetation_info=_veg_info,
                     y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
                     x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
@@ -1837,7 +1843,7 @@ def run_model(config_path, check_mass_conservation=False,
                     results['dune_x'][0], results['dune_z'][0],
                     dune_x, dune_z,
                     substrate_x, substrate_z,
-                    _plot_output_base, i + 1, current_pct,
+                    _plot_frame_base, i + 1, current_pct,
                     bc_info=_bc_info, vegetation_info=_veg_info,
                     y_lim_top=_plot_y_max, y_lim_bottom=_plot_y_min,
                     x_lim_right=_plot_x_max, x_lim_left=_plot_x_min
