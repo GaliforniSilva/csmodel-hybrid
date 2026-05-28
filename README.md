@@ -9,6 +9,8 @@ The model simulates cross-shore profile evolution under:
 - Vegetation growth and feedbacks
 - Hard structures (e.g., dikes and revetments)
 
+This framework is intended for research applications at **annual to centennial time scales**, supporting studies on nature-based and hybrid coastal defence strategies.
+
 ---
 
 ## Authors
@@ -20,6 +22,22 @@ The model simulates cross-shore profile evolution under:
 - **Caroline Hallin** (Lund University)
 
 TU Delft, 2026
+
+---
+
+## Model Description
+
+The CS Hybrid Model is based on the original CS Model formulation presented in:
+
+> Hallin, C., Larson, M., & Hanson, H. (2019).  
+> *Simulating beach and dune evolution at decadal to centennial scale under rising sea levels.*  
+> PLoS ONE, 14(4), e0215651.  
+> https://doi.org/10.1371/journal.pone.0215651  
+
+This version extends the model to explicitly represent:
+
+- Vegetated dune evolution  
+- Interaction between dunes and hard structures such as dikes  
 
 ---
 
@@ -35,46 +53,96 @@ csmodel-hybrid/
 │   ├── katwijk/
 │   ├── oosteroever/
 │   └── sediment_conservation/
-├── analyze_conservation_timeseries.py
-└── mass_conservation_report.py
 ```
 
 ---
 
-## Environment Setup (Conda)
+## Main Scripts
 
-Create and activate the conda environment:
+1. `main.py`
 
-```bash
-conda env create -f environment.yml
-conda activate csmodel-hybrid
-```
+The main executable file that runs the CS Hybrid simulation.
 
----
+**Key features:**
+
+- Reads model setup from a YAML configuration file  
+- Simulates 1D cross-shore profile evolution  
+- Includes vegetation and hard structure modules  
+- Produces time-varying morphology and vegetation outputs  
+
+
+2. `functions.py`
+
+This file contains helper functions used throughout the model workflow, including:
+
+- Geometric profile operations
+- Sediment transport calculations
+- Interpolation utilities
+- Vegetation and structure-related routines
+
+3. `mass_conservation.py`
+
+This module provides mass conservation analysis for model simulations. It checks that sediment mass is conserved throughout the simulation by:
+
+- Tracking volume changes in dune, beach, and bar compartments
+- Comparing actual volume changes to expected changes based on sediment fluxes
+- Generating detailed reports on mass balance errors
+- Alerting users if mass balance errors exceed acceptable, user-defined thresholds
+
+## Prerequisites
+- Python 3.11 or higher
+- Required packages: numpy, scipy, matplotlib, shapely, pandas, netCDF4, pyyaml
+- Conda yaml available.
+
 
 ## Quick Start
 
-Example runs:
+##### Running a Simulation with a YAML Config File
+
+Each example uses a YAML configuration file specifying all necessary parameters and file paths. Paths in the YAML should be **relative to the YAML file location** for portability.
+
+Example YAML files:
+
+- `examples/katwijk/config_hardstruct.yaml`
+- `examples/oosteroever/config_vegetation.yaml`
+
+###### Run the simulation
+
+1. On a terminal, change directory to the desired example (katwijk or oosteroever):
 
 ```bash
-cd examples/oosteroever
+cd PATH/examples/oosteroever
+cd PATH/examples/katwijk
+
+```
+
+2. Then, run the script:
+
+```bash
+python run_example_katwijk.py
 python run_example_oosteroever.py
 ```
 
-or
+After completion:
+* The output pickle file will be saved in the directory specified in the YAML (e.g., `cs_model_oosteroever.pkl`).
+* Each example automatically generates a plot for visualization.
+* A mass conservation report is automatically generated and displayed in the terminal.
+* A mass conservation summary file is saved alongside the output (e.g., `cs_model_oosteroever_mass_conservation.txt`).
 
-```bash
-cd examples/katwijk
-python run_example_katwijk.py
-```
 
-Each run writes a pickle output file and can also generate sediment conservation diagnostics.
+## Sediment Conservation
 
----
+The model includes automatic mass conservation checking that can be enabled when running simulations. This feature:
 
-## Sediment Conservation (Updated)
-
-Sediment conservation is tracked during the simulation and can be reported at the end of a run.
+- **Validates** that sediment mass is conserved throughout the simulation
+- **Tracks** volume changes in all compartments (dune, beach, bar)
+- **Compares** actual changes to expected changes based on sediment fluxes
+- **Reports** detailed mass balance information including:
+  - Initial and final volumes for each compartment
+  - Volume changes over the simulation
+  - Integrated sediment fluxes (aeolian transport, wave erosion, bar-beach exchange)
+  - Mass balance errors with threshold-based assessment
+- **Saves** a summary report to a text file for record-keeping
 
 ### 1) In-run conservation tracking
 
@@ -86,7 +154,7 @@ Sediment conservation is tracked during the simulation and can be reported at th
 - `results['conservation']['total_error']`
 - and their percentage counterparts (`*_error_pct`)
 
-The time series include the initial state (`t=0`) plus all simulated time steps.
+The time series includes the initial state (`t=0`) plus all simulated time steps.
 
 ### 2) End-of-run conservation report
 
