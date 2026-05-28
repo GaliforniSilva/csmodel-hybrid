@@ -2178,7 +2178,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     
                     # --- lateral overflow mapping ---
                     # triangular cross-section: area = 0.5 * base * height -> base = 2 * area / height
-                    delta_ys = 2*vramp_lateral / s_new_c
+                    delta_ys = vramp_lateral / s_new_c
                 
                     # update positions
                     ys_new_c = dune_x['ramp_toe'] + delta_ys            # seaward dune foot
