@@ -71,21 +71,8 @@ from types import SimpleNamespace
 # PATH SETUP
 ############################################################################
 
-# if len(sys.argv) < 2:
-#     raise RuntimeError(
-#         "Usage: python main.py path/to/config.yaml"
-#     )
-
-#config_path = sys.argv[1]
-
-package_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(package_dir)  # parent folder
-
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from cs_model.functions import *
-from cs_model.mass_conservation import calculate_compartment_volumes, calculate_timestep_conservation
+from .functions import *
+from .mass_conservation import calculate_compartment_volumes, calculate_timestep_conservation
 import pickle
 
 # Persistent vegetation rendering state used by snapshot plotting so stems
@@ -1889,7 +1876,7 @@ def run_model(config_path, check_mass_conservation=False,
     
     if check_mass_conservation:
         print()  # Empty line for better formatting
-        from cs_model.mass_conservation import check_mass_conservation as check_mass
+        from .mass_conservation import check_mass_conservation as check_mass
         mass_check_result = check_mass(results, config, verbose=True,
                                        skip_first_step=skip_first_step_conservation)
         

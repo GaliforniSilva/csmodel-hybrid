@@ -16,15 +16,8 @@ License:
 """
 
 import numpy as np
-import sys
-import os
 
-# Import from local package
-package_dir = os.path.dirname(os.path.abspath(__file__))
-if package_dir not in sys.path:
-    sys.path.insert(0, package_dir)
-
-from cs_model.functions import partial_volume
+from .functions import partial_volume
 
 
 def calculate_actual_beach_volume(dune_x, vbeach, dclos, dfoot):

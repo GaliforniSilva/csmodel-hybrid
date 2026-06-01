@@ -95,7 +95,36 @@ This module provides mass conservation analysis for model simulations. It checks
 - Conda yaml available.
 
 
-## Quick Start
+## Installation
+
+The package can be installed directly with `pip`, which makes it importable from any Python environment without path manipulation:
+
+```bash
+# Editable install (recommended for development / coupling with other models)
+pip install -e /path/to/csmodel-hybrid
+
+# Or install from within the repository root
+cd /path/to/csmodel-hybrid
+pip install -e .
+```
+
+Once installed you can import the model anywhere:
+
+```python
+from cs_model import run_model
+
+results = run_model("config.yaml")
+```
+
+Alternatively, install into a conda environment using the provided `environment.yml`:
+
+```bash
+conda env create -f environment.yml
+conda activate csmodel-hybrid
+pip install -e .
+```
+
+
 
 ##### Running a Simulation with a YAML Config File
 
@@ -107,6 +136,16 @@ Example YAML files:
 - `examples/oosteroever/config_vegetation.yaml`
 
 ###### Run the simulation
+
+After installing the package (see **Installation** above), import and run from anywhere:
+
+```python
+from cs_model import run_model
+
+results = run_model("config_vegetation.yaml")
+```
+
+Or run an example script from its directory:
 
 1. On a terminal, change directory to the desired example (katwijk or oosteroever):
 
@@ -121,14 +160,6 @@ cd PATH/examples/katwijk
 ```bash
 python run_example_katwijk.py
 python run_example_oosteroever.py
-```
-
-You can also run directly from Python and control runtime flags:
-
-```python
-from cs_model.main import run_model
-
-results = run_model("config_vegetation.yaml")
 ```
 
 ### `run_model(...)` flags (runtime options)
@@ -267,7 +298,7 @@ A run is marked as conserved when **either** criterion is met.
 ### 4) Running with conservation enabled
 
 ```python
-from cs_model.main import run_model
+from cs_model import run_model
 
 results = run_model(
     "config.yaml",
