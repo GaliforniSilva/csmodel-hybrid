@@ -164,7 +164,12 @@ python run_example_oosteroever.py
 
 ### `run_model(...)` flags (runtime options)
 
-`run_model` takes a YAML config path plus optional keyword flags:
+`run_model` accepts either:
+
+- a YAML config path (`str` or `Path`), or
+- an in-memory configuration dictionary (`dict`) with the same structure as the YAML.
+
+plus optional keyword flags:
 
 - `check_mass_conservation=False`  
   Runs end-of-simulation sediment conservation diagnostics and writes a text report.
@@ -214,6 +219,16 @@ For this example, the model can produce:
 
 ```python
 run_model("config.yaml")
+```
+
+or from an in-memory dictionary:
+
+```python
+config = {
+    "time": {"time_length_hours": 24, "dt": 600},
+    # ... same sections/keys as YAML
+}
+run_model(config)
 ```
 
 2. Conservation-focused run:
@@ -320,5 +335,4 @@ Hallin, C., Larson, M., & Hanson, H. (2019).
 *Simulating beach and dune evolution at decadal to centennial scale under rising sea levels.*  
 PLoS ONE, 14(4), e0215651.  
 https://doi.org/10.1371/journal.pone.0215651
-
 
