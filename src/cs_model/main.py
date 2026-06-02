@@ -1093,13 +1093,10 @@ def run_model(config_path, check_mass_conservation=False,
 
     output_filename = output_config.get('filename', 'cs_model_results.pkl')
     output_base = os.path.splitext(output_filename)[0]
-    output_disable = _config_flag(
-        output_config.get('output_disable', config.get('output_disable', False))
-    )
     coupling_mode = _config_flag(
         output_config.get('coupling', config.get('coupling', False))
     )
-    save_outputs = not (output_disable or coupling_mode)
+    save_outputs = not coupling_mode
     terminal_output_enabled = not coupling_mode
 
     def log(*args, **kwargs):
@@ -1874,7 +1871,7 @@ def run_model(config_path, check_mass_conservation=False,
             pickle.dump(results, f)
         log(f"Simulation completed. Results saved to {output_filename}.")
     else:
-        log("Simulation completed. Output saving disabled by configuration.")
+        log("Simulation completed. Coupling mode enabled; file outputs were skipped.")
 
     ############################################################################
     # EVOLUTION MOVIE (if requested)

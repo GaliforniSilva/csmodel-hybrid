@@ -193,16 +193,13 @@ The output basename is taken from the YAML key:
 ```yaml
 output:
   filename: cs_model_oosteroever.pkl
-  output_disable: 0
   coupling: 0
 ```
 
 - `output.filename`  
   Default pickle output path when saving is enabled.
-- `output.output_disable`  
-  When set to `1`/`true`, disables file outputs, including the pickle file and any derived saved outputs.
 - `output.coupling`  
-  When set to `1`/`true`, enables coupling mode: file outputs are disabled and general terminal printing is suppressed.
+  When set to `1`/`true`, enables coupling mode: file outputs are disabled, general terminal printing is suppressed, and `run_model(...)` still returns the full in-memory `results` dictionary.
 
 For this example, the model can produce:
 
@@ -329,4 +326,3 @@ Hallin, C., Larson, M., & Hanson, H. (2019).
 *Simulating beach and dune evolution at decadal to centennial scale under rising sea levels.*  
 PLoS ONE, 14(4), e0215651.  
 https://doi.org/10.1371/journal.pone.0215651
-
