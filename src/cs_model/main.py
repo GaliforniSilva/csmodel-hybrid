@@ -1770,6 +1770,7 @@ def run_model(config_path, check_mass_conservation=False,
         results['qs_ramp'].append(qs_ramp)
         results['qwnet'].append(qwnet)
         results['qbar'].append(qbar)
+        results['cumdt'].append(cumdt)
 
         ## print progress
         if i % 1000 == 0:
