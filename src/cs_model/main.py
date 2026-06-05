@@ -96,6 +96,15 @@ def load_config(config_path):
     return cfg
 
 
+def _config_flag(value):
+    """
+    Convert common YAML flag values to bool.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                            substrate_x, substrate_z, output_base, timestep,
                            progress_pct, bc_info=None, vegetation_info=None,
@@ -1078,6 +1087,21 @@ def run_model(config_path, check_mass_conservation=False,
 
     # Load configuration
     config = load_config(config_path)
+    output_config = config.get('output', {})
+    if not isinstance(output_config, dict):
+        output_config = {}
+
+    output_filename = output_config.get('filename', 'cs_model_results.pkl')
+    output_base = os.path.splitext(output_filename)[0]
+    coupling_mode = _config_flag(
+        output_config.get('coupling', config.get('coupling', False))
+    )
+    save_outputs = not coupling_mode
+    terminal_output_enabled = not coupling_mode
+
+    def log(*args, **kwargs):
+        if terminal_output_enabled:
+            print(*args, **kwargs)
 
 
     # Inject each config key as a variable in the global namespace
@@ -1318,9 +1342,8 @@ def run_model(config_path, check_mass_conservation=False,
 
     # Set up evolution plotting (resolve output base early so snapshots can be saved
     # incrementally during the loop)
-    output_filename = config.get('output', {}).get('filename', 'cs_model_results.pkl')
-    if plot_evolution:
-        _plot_output_base = os.path.splitext(output_filename)[0]
+    if plot_evolution and save_outputs:
+        _plot_output_base = output_base
         _plot_output_dir = os.path.dirname(_plot_output_base) or "."
         _plot_output_name = os.path.basename(_plot_output_base)
         _plot_frames_dir = os.path.join(_plot_output_dir, f"{_plot_output_name}_frames")
@@ -1390,7 +1413,7 @@ def run_model(config_path, check_mass_conservation=False,
             or (manual_plot_x_lim_right is not None)
             or (manual_plot_x_lim_left is not None)
         ):
-            print(
+            log(
                 "Warning: manual plot limits were provided "
                 "but manual_plot_limits=False; automatic plot limits are used."
             )
@@ -1521,14 +1544,14 @@ def run_model(config_path, check_mass_conservation=False,
                 if r + swl <= dune_z['seaward_crest']:
                     qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
                 else:
-                    print('OVERWASH')
+                    log('OVERWASH')
                     qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['seaward_crest']-p.dfoot)) / tp)
                     alfa = (((r + swl - p.dfoot) / (dune_z['seaward_crest']-p.dfoot)) - 1) / aover
             else: 
                 if r + swl <= dune_z['ramp_dike_temp']:
                     qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
                 else:
-                    print('OVERWASH')
+                    log('OVERWASH')
                     qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['ramp_dike_temp']-p.dfoot)) / tp)
                     alfa = (((r + swl - p.dfoot) / (dune_z['ramp_dike_temp']-p.dfoot)) - 1) / aover
         else:
@@ -1747,13 +1770,14 @@ def run_model(config_path, check_mass_conservation=False,
         results['qs_ramp'].append(qs_ramp)
         results['qwnet'].append(qwnet)
         results['qbar'].append(qbar)
+        results['cumdt'].append(cumdt)
 
         ## print progress
         if i % 1000 == 0:
-            print(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
+            log(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
 
         ## save profile evolution snapshot (if requested)
-        if plot_evolution:
+        if plot_evolution and save_outputs:
             current_pct = 100.0 * (i + 1) / _total_steps
 
             # Build shared bc_info for all snapshot calls this timestep
@@ -1843,74 +1867,75 @@ def run_model(config_path, check_mass_conservation=False,
     # SAVE RESULTS
     ############################################################################
 
-    with open(output_filename, 'wb') as f:
-        pickle.dump(results, f)
-
-    print(f"Simulation completed. Results saved to {output_filename}.")
+    if save_outputs:
+        with open(output_filename, 'wb') as f:
+            pickle.dump(results, f)
+        log(f"Simulation completed. Results saved to {output_filename}.")
+    else:
+        log("Simulation completed. Coupling mode enabled; file outputs were skipped.")
 
     ############################################################################
     # EVOLUTION MOVIE (if requested)
     ############################################################################
 
-    if save_evolution_movie and not plot_evolution:
-        print("Warning: save_evolution_movie=True has no effect when plot_evolution=False.")
-    if save_evolution_video and not plot_evolution:
-        print("Warning: save_evolution_video=True has no effect when plot_evolution=False.")
+    if save_outputs and save_evolution_movie and not plot_evolution:
+        log("Warning: save_evolution_movie=True has no effect when plot_evolution=False.")
+    if save_outputs and save_evolution_video and not plot_evolution:
+        log("Warning: save_evolution_video=True has no effect when plot_evolution=False.")
 
-    if plot_evolution and save_evolution_movie and _plot_saved_frames:
+    if plot_evolution and save_outputs and save_evolution_movie and _plot_saved_frames:
         movie_path = f"{_plot_output_base}_evolution.gif"
         try:
             _create_evolution_movie(_plot_saved_frames, movie_path)
         except Exception as exc:
-            print(f"Warning: evolution GIF creation failed; continuing without GIF. Error: {exc}")
-    if plot_evolution and save_evolution_video and _plot_saved_frames:
+            log(f"Warning: evolution GIF creation failed; continuing without GIF. Error: {exc}")
+    if plot_evolution and save_outputs and save_evolution_video and _plot_saved_frames:
         video_path = f"{_plot_output_base}_evolution.mp4"
         try:
             _create_evolution_video(_plot_saved_frames, video_path)
         except Exception as exc:
-            print(f"Warning: evolution MP4 creation failed; continuing without MP4. Error: {exc}")
+            log(f"Warning: evolution MP4 creation failed; continuing without MP4. Error: {exc}")
     
     ############################################################################
     # MASS CONSERVATION CHECK (if requested)
     ############################################################################
     
     if check_mass_conservation:
-        print()  # Empty line for better formatting
         from .mass_conservation import check_mass_conservation as check_mass
-        mass_check_result = check_mass(results, config, verbose=True,
+        mass_check_result = check_mass(results, config, verbose=terminal_output_enabled,
                                        skip_first_step=skip_first_step_conservation)
         
         # Save the full mass conservation report to file
         if mass_check_result:
-            mass_report_filename = output_filename.replace('.pkl', '_mass_conservation.txt')
-            with open(mass_report_filename, 'w') as f:
-                f.write("Detailed Mass Conservation Report\n")
-                f.write("=" * 80 + "\n")
-                f.write(f"Output file: {output_filename}\n")
-                f.write("=" * 80 + "\n")
-                f.write("\n")
-                # Write the full detailed report
-                f.write(mass_check_result['report_text'])
-            print(f"Mass conservation report saved to {mass_report_filename}")
+            if save_outputs:
+                mass_report_filename = f"{output_base}_mass_conservation.txt"
+                with open(mass_report_filename, 'w') as f:
+                    f.write("Detailed Mass Conservation Report\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"Output file: {output_filename}\n")
+                    f.write("=" * 80 + "\n")
+                    f.write("\n")
+                    # Write the full detailed report
+                    f.write(mass_check_result['report_text'])
+                log(f"Mass conservation report saved to {mass_report_filename}")
 
-            # Print final summary to terminal for visibility
-            print()
-            print("=" * 80)
-            print("MASS CONSERVATION SUMMARY")
-            print("=" * 80)
-            print(f"Status: {'✓ PASSED' if mass_check_result['conserved'] else '⚠ FAILED'}")
-            print(f"Total Volume Error:         {mass_check_result['total_error']:+.6f} m³/m ({mass_check_result['total_error_percent']:.4f}% of V₀)")
-            print(f"Transport-relative error:   {100*mass_check_result['transport_relative_error']:.4f}%")
-            print(f"Annualised drift rate:       {mass_check_result['drift_per_year']:+.3e} m³/m/year")
-            print(f"Initial Total Volume:        {mass_check_result['initial_total']:.4f} m³/m")
-            print(f"Final Total Volume:          {mass_check_result['final_total']:.4f} m³/m")
-            print(f"Thresholds — transport: {mass_check_result['transport_threshold']}% | volume: {mass_check_result['volume_threshold']}%")
+            log()
+            log("=" * 80)
+            log("MASS CONSERVATION SUMMARY")
+            log("=" * 80)
+            log(f"Status: {'✓ PASSED' if mass_check_result['conserved'] else '⚠ FAILED'}")
+            log(f"Total Volume Error:         {mass_check_result['total_error']:+.6f} m³/m ({mass_check_result['total_error_percent']:.4f}% of V₀)")
+            log(f"Transport-relative error:   {100*mass_check_result['transport_relative_error']:.4f}%")
+            log(f"Annualised drift rate:       {mass_check_result['drift_per_year']:+.3e} m³/m/year")
+            log(f"Initial Total Volume:        {mass_check_result['initial_total']:.4f} m³/m")
+            log(f"Final Total Volume:          {mass_check_result['final_total']:.4f} m³/m")
+            log(f"Thresholds — transport: {mass_check_result['transport_threshold']}% | volume: {mass_check_result['volume_threshold']}%")
             if mass_check_result['conserved']:
-                print("\n✓ Mass is conserved within acceptable limits!")
+                log("\n✓ Mass is conserved within acceptable limits!")
             else:
-                print("\n⚠ WARNING: Mass balance error exceeds acceptable threshold!")
-            print("=" * 80)
-            print()
+                log("\n⚠ WARNING: Mass balance error exceeds acceptable threshold!")
+            log("=" * 80)
+            log()
 
     return results
 
