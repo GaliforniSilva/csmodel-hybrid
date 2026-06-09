@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "csmodel-hybrid"
+name = "csmodel_hybrid"
 version = "0.1.0"
 description = "1D CS Hybrid Model for coastal dune–dike simulation (TU Delft)"
 readme = "README.md"
