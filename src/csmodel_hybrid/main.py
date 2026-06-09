@@ -103,8 +103,6 @@ def load_config(config_source):
     raise TypeError(
         "config_source must be a mapping or a path to a YAML file."
     )
-
-
 def _config_flag(value):
     """
     Convert common YAML flag values to bool.
