@@ -1276,6 +1276,7 @@ def run_model(config_source, check_mass_conservation=False,
         'qs_ramp': [],
         'qwnet': [],
         'qbar': [],
+        'cumdt': [],
         'wave_period': wave_period_time_series,
         'wave_direction': wave_dir_time_series,
         'wind_speed': wind_speed_time_series,
@@ -1305,8 +1306,8 @@ def run_model(config_source, check_mass_conservation=False,
     }
 
     # Initialize cumulative time for vegetation update
-    cumdt = 0
-    vegupdate = 0
+    cumdt = getattr(p, 'cumdt', 0)
+    vegupdate = getattr(p, 'vegupdate', 0)
     s_veg = p.s # allocate value for the vegetation growth calc
     ys_veg = p.ys # allocate value for the vegetation growth calc
     yl_veg = p.yl # allocate value for the vegetation growth calc
