@@ -50,6 +50,8 @@ HALLIN, C., LARSON, M. & HANSON, H. 2019. Simulating beach and dune evolution at
 
 import sys
 import os
+from pathlib import Path
+from collections.abc import Mapping
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
@@ -83,19 +85,24 @@ _VEG_RENDER_STATE = {}
 # INITIALIZATION OF PARAMETERS
 ############################################################################
 
-def load_config(config_path):
+def load_config(config_source):
     """
-    Load YAML configuration file from a given path.
+    Load configuration from a YAML file path or an in-memory dictionary.
     """
-    if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
+    if isinstance(config_source, Mapping):
+        return dict(config_source)
 
-    with open(config_path, "r") as f:
-        cfg = yaml.safe_load(f)
+    if isinstance(config_source, (str, os.PathLike, Path)):
+        config_path = os.fspath(config_source)
+        if not os.path.isfile(config_path):
+            raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    return cfg
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f)
 
-
+    raise TypeError(
+        "config_source must be a mapping or a path to a YAML file."
+    )
 def _config_flag(value):
     """
     Convert common YAML flag values to bool.
@@ -1017,19 +1024,20 @@ def _create_evolution_video(frame_paths, output_path, fps=2):
     print(f"Evolution movie saved to {output_path}")
 
 
-def run_model(config_path, check_mass_conservation=False,
+def run_model(config_source, check_mass_conservation=False,
               plot_evolution=False, plot_evolution_interval=5.0,
               save_evolution_movie=False, skip_first_step_conservation=False,
               manual_plot_limits=False, manual_plot_y_lim_top=None,
               manual_plot_y_lim_bottom=None, manual_plot_x_lim_right=None,
               manual_plot_x_lim_left=None, save_evolution_video=False):
     """
-    Run the CS model using a YAML configuration file.
+    Run the CS model using a YAML configuration file or configuration dictionary.
 
     Parameters
     ----------
-    config_path : str
-        Path to the YAML configuration file
+    config_source : str | pathlib.Path | dict
+        Path to the YAML configuration file or an in-memory configuration
+        dictionary with the same structure as the YAML content.
     check_mass_conservation : bool, optional
         If True, perform mass conservation check after simulation and print report.
         Default is False.
@@ -1086,7 +1094,7 @@ def run_model(config_path, check_mass_conservation=False,
     """
 
     # Load configuration
-    config = load_config(config_path)
+    config = load_config(config_source)
     output_config = config.get('output', {})
     if not isinstance(output_config, dict):
         output_config = {}
