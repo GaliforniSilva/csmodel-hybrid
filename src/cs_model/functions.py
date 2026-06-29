@@ -1189,6 +1189,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 srampnew = max(np.interp(ysprim_new, list(dune_x.values()), list(dune_z.values())), np.interp(ysprim_new, substrate_x, substrate_z))
                 #else:
                 #    srampnew = dune_z['ramp_toe'] #no change as the dike is exposed
+                
+                #checker if the dune is completely eroded
+                if ysprim_new<dune_x['lee_foot']:
+                    srampnew = dune_z['lee_foot']
 
         else: #dike submerged thus overtopping as well
             
@@ -1223,6 +1227,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 #else:
                 #    srampnew = dune_z['ramp_toe'] #no change as the dike is exposed
 
+                #checker if the dune is completely eroded
+                if ysprim_new<dune_x['lee_foot']:
+                    srampnew = dune_z['lee_foot']
+                    
         deltavramp = erod_ramp
         deltavall=deltavall+deltavramp
 
