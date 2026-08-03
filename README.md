@@ -1,4 +1,6 @@
-# CS-hybrid
+# CS-Hybrid
+
+Version 1.0
 
 This repository contains an extended **1D version of the CS Model** (Hallin et al., 2019), adapted to represent **vegetation dynamics** and **hard coastal structures** for **hybrid dune–dike systems**.
 
