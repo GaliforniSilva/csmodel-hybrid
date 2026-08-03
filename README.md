@@ -18,8 +18,11 @@ This framework is intended for research applications at **annual to centennial t
 - **Filipe Galiforni Silva** (TU Delft)
 - **Ad Reniers** (TU Delft)
 - **Sierd de Vries** (TU Delft)
-- **Floris van Rees** (Deltares)
+- **Floris van Rees** (Deltares/NIOZ)
 - **Caroline Hallin** (Lund University)
+- **Bas Huisman** (Deltares)
+- **Maaike Maarse** (Deltares)
+- **Sebastian Dan** (Flanders Hydraulics)
 
 TU Delft, 2026
 
