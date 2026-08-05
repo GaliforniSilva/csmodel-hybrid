@@ -1519,8 +1519,11 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     x_foot_max = substrate_x[3] + (s_hs)/betas
                     vrampmax   = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs)))
             else:
-                x_foot_max = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot)/betas)
-                vrampmax   = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], x_foot_max, betas, dfoot, substrate_x, substrate_z)
+                if dune_z['seaward_crest'] == dune_z['ramp_crest']:
+                    vrampmax = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
+                else:
+                    x_foot_max = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot)/betas)
+                    vrampmax   = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], x_foot_max, betas, dfoot, substrate_x, substrate_z)
              
             vrampnew   = vramp + deltavramp
             
