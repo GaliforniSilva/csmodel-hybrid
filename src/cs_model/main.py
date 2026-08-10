@@ -1642,6 +1642,10 @@ def run_model(config_path, check_mass_conservation=False,
         if p.vanr > 0:
             vnourd[i], vnourb[i], vnourbar[i], IV = nour(i, IV, volat, volad, volab, volrb, p.vanr)
             
+        # make qbar=0 if the shoreline is already touching the substrate, meaning no sediment is actually transported from the beach to the subtidal
+        if (dune_x['shoreline'] - substrate_x[4])<20:
+            qbar = 0
+                
         # Calculate bar evolution
         volbar, barnour[i] = bar(volbar, qbar, p.dt, vnourbar[i], barnour[i], qnour)
         
