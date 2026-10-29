@@ -172,11 +172,128 @@ def total_volume(dune_x, dune_z, substrate_x, substrate_z):
     # trapezoidal integration
     return trapezoid_positive(z_dense - z_sub, x_dense)
 
+# def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+#                    x_min=None, x_max=None):
+#     """
+#     Integrate dune volume above substrate between optional x-limits.
+
+#     Parameters
+#     ----------
+#     dune_x : dict
+#         Dune profile x-coordinates keyed by pivot name.
+#     dune_z : dict
+#         Dune profile elevations keyed by pivot name.
+#     substrate_x : array-like
+#         Substrate x-coordinates.
+#     substrate_z : array-like
+#         Substrate elevations.
+#     x_min : float or None, optional
+#         Left integration limit. Uses profile minimum when ``None``.
+#     x_max : float or None, optional
+#         Right integration limit. Uses profile maximum when ``None``.
+
+#     Returns
+#     -------
+#     float
+#         Integrated positive sediment volume (m³/m).
+#     """
+
+#     # Remove None values
+#     dune_x = {k: v for k, v in dune_x.items() if v is not None}
+#     dune_z = {k: v for k, v in dune_z.items() if v is not None}
+
+#     # --- Convert dicts to ordered arrays ---
+#     order = [
+#         'back_ref', 'lee_foot', 'lee_crest', 'crest_temp',
+#         'seaward_crest', 'ramp_dike_temp', 'ramp_crest',
+#         'ramp_toe_temp', 'ramp_toe', 'shoreline'
+#     ]
+
+#     x = np.array([dune_x[k] for k in order if k in dune_x])
+#     z = np.array([dune_z[k] for k in order if k in dune_z])
+
+#     # Sort by x to ensure monotone integration.  During certain deposition
+#     # states (detach_tag==2) seaward_crest can be placed seaward of
+#     # ramp_dike_temp/ramp_crest, producing a non-monotone ordering that
+#     # causes np.trapz to subtract area rather than add it.  Sorting makes
+#     # partial_volume always return the physically correct sediment volume
+#     # without altering any of the morphodynamic update logic.
+#     #
+#     # Before sorting, snap specific profile-point pairs whose canonical order
+#     # can accumulate a tiny numerical violation over many timesteps.  Snapping
+#     # them to coincide lets the stable sort keep their canonical ordering,
+#     # preventing large discontinuous volume jumps.  Pairs that can legitimately
+#     # be far out of canonical order (e.g. seaward_crest vs ramp_crest in the
+#     # detached case) are left to the sort.
+    
+#     _present = {k: i for i, k in enumerate(k for k in order if k in dune_x)}
+#     if 'crest_temp' in _present and 'seaward_crest' in _present:
+#         ict, isc = _present['crest_temp'], _present['seaward_crest']
+#         if x[ict] > x[isc]:
+#             x[ict] = x[isc]   # crest_temp must not be seaward of seaward_crest
+#     if 'seaward_crest' in _present and 'ramp_dike_temp' in _present:
+#         isc, irdt = _present['seaward_crest'], _present['ramp_dike_temp']
+#         if x[isc] > x[irdt]:
+#             x[isc] = x[irdt]  # seaward_crest must not be seaward of ramp_dike_temp
+#     if 'ramp_dike_temp' in _present and 'ramp_crest' in _present:
+#         irdt, irc = _present['ramp_dike_temp'], _present['ramp_crest']
+#         if x[irc] < x[irdt]:
+#             x[irc] = x[irdt]  # ramp_crest must not be landward of ramp_dike_temp
+
+#     sort_idx = np.argsort(x, kind='stable')
+#     x = x[sort_idx]
+#     z = z[sort_idx]
+    
+    
+#     # Densify dune curve
+#     n_per_segment = 100
+
+#     x_dense = np.concatenate([
+#         np.linspace(x[i], x[i + 1], n_per_segment, endpoint=False)
+#         for i in range(len(x) - 1)
+#     ] + [[x[-1]]])
+
+#     z_dense = np.concatenate([
+#         np.linspace(z[i], z[i + 1], n_per_segment, endpoint=False)
+#         for i in range(len(z) - 1)
+#     ] + [[z[-1]]])
+
+#     # Interpolate substrate
+#     z_sub = np.interp(x_dense, substrate_x, substrate_z)
+
+#     # Restrict to x limits
+#     if x_min is not None or x_max is not None:
+#         x_min = x_dense[0] if x_min is None else max(x_min, x_dense[0])
+#         x_max = x_dense[-1] if x_max is None else min(x_max, x_dense[-1])
+
+#         z_min = np.interp(x_min, x_dense, z_dense)
+#         z_max = np.interp(x_max, x_dense, z_dense)
+#         z_sub_min = np.interp(x_min, x_dense, z_sub)
+#         z_sub_max = np.interp(x_max, x_dense, z_sub)
+
+#         mask = (x_dense >= x_min) & (x_dense <= x_max)
+#         x_clip = x_dense[mask]
+#         z_clip = z_dense[mask]
+#         z_sub_clip = z_sub[mask]
+
+#         if len(x_clip) == 0 or x_clip[0] > x_min:
+#             x_clip = np.insert(x_clip, 0, x_min)
+#             z_clip = np.insert(z_clip, 0, z_min)
+#             z_sub_clip = np.insert(z_sub_clip, 0, z_sub_min)
+
+#         if x_clip[-1] < x_max:
+#             x_clip = np.append(x_clip, x_max)
+#             z_clip = np.append(z_clip, z_max)
+#             z_sub_clip = np.append(z_sub_clip, z_sub_max)
+#     else:
+#         x_clip, z_clip, z_sub_clip = x_dense, z_dense, z_sub
+
+#     return trapezoid_positive(z_clip - z_sub_clip, x_clip)
 def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
                    x_min=None, x_max=None):
     """
     Integrate dune volume above substrate between optional x-limits.
-
+ 
     Parameters
     ----------
     dune_x : dict
@@ -191,27 +308,27 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
         Left integration limit. Uses profile minimum when ``None``.
     x_max : float or None, optional
         Right integration limit. Uses profile maximum when ``None``.
-
+ 
     Returns
     -------
     float
         Integrated positive sediment volume (m³/m).
     """
-
+ 
     # Remove None values
     dune_x = {k: v for k, v in dune_x.items() if v is not None}
     dune_z = {k: v for k, v in dune_z.items() if v is not None}
-
+ 
     # --- Convert dicts to ordered arrays ---
     order = [
         'back_ref', 'lee_foot', 'lee_crest', 'crest_temp',
         'seaward_crest', 'ramp_dike_temp', 'ramp_crest',
         'ramp_toe_temp', 'ramp_toe', 'shoreline'
     ]
-
+ 
     x = np.array([dune_x[k] for k in order if k in dune_x])
     z = np.array([dune_z[k] for k in order if k in dune_z])
-
+ 
     # Sort by x to ensure monotone integration.  During certain deposition
     # states (detach_tag==2) seaward_crest can be placed seaward of
     # ramp_dike_temp/ramp_crest, producing a non-monotone ordering that
@@ -239,57 +356,40 @@ def partial_volume(dune_x, dune_z, substrate_x, substrate_z,
         irdt, irc = _present['ramp_dike_temp'], _present['ramp_crest']
         if x[irc] < x[irdt]:
             x[irc] = x[irdt]  # ramp_crest must not be landward of ramp_dike_temp
-
+ 
     sort_idx = np.argsort(x, kind='stable')
     x = x[sort_idx]
     z = z[sort_idx]
     
     
-    # Densify dune curve
-    n_per_segment = 100
-
-    x_dense = np.concatenate([
-        np.linspace(x[i], x[i + 1], n_per_segment, endpoint=False)
-        for i in range(len(x) - 1)
-    ] + [[x[-1]]])
-
-    z_dense = np.concatenate([
-        np.linspace(z[i], z[i + 1], n_per_segment, endpoint=False)
-        for i in range(len(z) - 1)
-    ] + [[z[-1]]])
-
-    # Interpolate substrate
-    z_sub = np.interp(x_dense, substrate_x, substrate_z)
-
-    # Restrict to x limits
-    if x_min is not None or x_max is not None:
-        x_min = x_dense[0] if x_min is None else max(x_min, x_dense[0])
-        x_max = x_dense[-1] if x_max is None else min(x_max, x_dense[-1])
-
-        z_min = np.interp(x_min, x_dense, z_dense)
-        z_max = np.interp(x_max, x_dense, z_dense)
-        z_sub_min = np.interp(x_min, x_dense, z_sub)
-        z_sub_max = np.interp(x_max, x_dense, z_sub)
-
-        mask = (x_dense >= x_min) & (x_dense <= x_max)
-        x_clip = x_dense[mask]
-        z_clip = z_dense[mask]
-        z_sub_clip = z_sub[mask]
-
-        if len(x_clip) == 0 or x_clip[0] > x_min:
-            x_clip = np.insert(x_clip, 0, x_min)
-            z_clip = np.insert(z_clip, 0, z_min)
-            z_sub_clip = np.insert(z_sub_clip, 0, z_sub_min)
-
-        if x_clip[-1] < x_max:
-            x_clip = np.append(x_clip, x_max)
-            z_clip = np.append(z_clip, z_max)
-            z_sub_clip = np.append(z_sub_clip, z_sub_max)
-    else:
-        x_clip, z_clip, z_sub_clip = x_dense, z_dense, z_sub
-
-    return trapezoid_positive(z_clip - z_sub_clip, x_clip)
-
+    # Exact integral of max(profile - substrate, 0) for piecewise-linear curves.
+    # Integrates segment by segment, splitting at every substrate breakpoint and
+    # at the exact zero crossings, so the result has no quadrature error and is
+    # consistent between any two profile states.
+    lo = x[0] if x_min is None else max(x_min, x[0])
+    hi = x[-1] if x_max is None else min(x_max, x[-1])
+    sx_arr = np.asarray(substrate_x, dtype=float)
+    sz_arr = np.asarray(substrate_z, dtype=float)
+    V = 0.0
+    for i in range(len(x) - 1):
+        a, b = max(x[i], lo), min(x[i + 1], hi)
+        if b <= a or x[i + 1] <= x[i]:
+            continue
+        inner = sx_arr[(sx_arr > a) & (sx_arr < b)]
+        nodes = np.concatenate(([a], inner, [b]))
+        zp = z[i] + (z[i + 1] - z[i]) * (nodes - x[i]) / (x[i + 1] - x[i])
+        h = zp - np.interp(nodes, sx_arr, sz_arr)
+        for j in range(len(nodes) - 1):
+            w = nodes[j + 1] - nodes[j]
+            ha, hb = h[j], h[j + 1]
+            if ha >= 0 and hb >= 0:
+                V += 0.5 * (ha + hb) * w
+            elif ha > 0 > hb:
+                V += 0.5 * ha * w * ha / (ha - hb)
+            elif hb > 0 > ha:
+                V += 0.5 * hb * w * hb / (hb - ha)
+    return V
+ 
 
 ### Vegetation-related functions
 def vegNield(dt,sold,snew, ylnew, ylold, ysnew, ysold, srampnew, srampold, betas, betal, rhov_df_spec1, rhov_dt_spec1, rhov_db_spec1, rhov_df_spec2, rhov_dt_spec2, rhov_db_spec2):
@@ -495,6 +595,21 @@ def seasonal_factor(month):
     """Returns seasonal growth multiplier (0–1) for pioneer and mature vegetation."""
     # Example: growth in spring/summer, zero in winter
     month_factors = [0.05, 0.05, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.05]
+    month_factors = [0.05, 0.05, 0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.7, 0.7, 0.05]
+    month_factors = [
+    0.05,  # Jan
+    0.05,  # Feb
+    0.75,  # Mar
+    1.0,  # Apr
+    1.0,  # May
+    1.0,  # Jun
+    1.0,  # Jul
+    1.0,  # Aug
+    1.0,  # Sep
+    1.0,  # Oct
+    0.75,  # Nov
+    0.05,  # Dec
+]
 
     return month_factors[month-1]
 
@@ -509,29 +624,173 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
     with seasonal growth modulation.
     '''
     
-    # define vertices values for both species
-    sp1_peak = 0.2  # pioneer species peak growth
+    # # define vertices values for both species
+    # sp1_peak = 0.2  # pioneer species peak growth
     sp2_peak = 0.05 # mature species peak growth
 
     dtYear = dt/(3600*24*365)  # timestep in years
-    dtMonth = dt/(3600*24*30.437)  # timestep in years
+    # dtMonth = dt/(3600*24*30.437)  # timestep in years
 
-    # --- species 1: Ammophila ---
-    #x1_spec1, x2_spec1, x3_spec1, x4_spec1, x5_spec1 = -0.6*dtYear, 0.2*dtYear, 0.6*dtYear, 2.0*dtYear, 2.2*dtYear
-    #y1_spec1, y2_spec1, y3_spec1, y4_spec1, y5_spec1 = -0.5*dtYear, 0.0*dtYear, sp1_peak*dtYear, 0.0*dtYear, -0.5*dtYear
     
-    # --- species 2: Elymus/Buckthorn ---
+    # --- species 1: Ammophila ---
+    # x1_spec1, x2_spec1, x3_spec1, x4_spec1, x5_spec1 = -0.6*dtYear, 0.2*dtYear, 0.6*dtYear, 2.0*dtYear, 2.2*dtYear
+    # y1_spec1, y2_spec1, y3_spec1, y4_spec1, y5_spec1 = -0.5*dtYear, 0.0*dtYear, sp1_peak*dtYear, 0.0*dtYear, -0.5*dtYear
+    
+    # # --- species 2: Elymus/Buckthorn ---
     x1_spec2, x2_spec2, x3_spec2, x4_spec2, x5_spec2 = -1.4*dtYear, -0.65*dtYear, 0.0*dtYear, 0.2*dtYear, 2.8*dtYear
     y1_spec2, y2_spec2, y3_spec2, y4_spec2, y5_spec2 = -0.5*dtYear, 0.0*dtYear, sp2_peak*dtYear, 0.0*dtYear, -0.5*dtYear
 
     # test with montlhy curves for ammophila
     # Ammophila (species 1)
     x1_spec1, y1_spec1 = -0.25, -0.30
-    x2_spec1, y2_spec1 =  0, 0
+    x2_spec1, y2_spec1 =  0, -0.01
     x3_spec1, y3_spec1 =  0.07,  0.12
     x4_spec1, y4_spec1 =  0.15,  0.02
     x5_spec1, y5_spec1 =  0.30, -0.10   
     
+    # ==========================================================================
+    # MONTHLY VEGETATION RESPONSE CURVES DERIVED FROM NIELD & BAAS (2008)
+    # ==========================================================================
+    #
+    # BACKGROUND
+    # ----------
+    # Nield & Baas (2008) give the vegetation response as a NET ANNUAL relation:
+    # annual burial (m/yr) -> net change in cover per year. "Net annual" means
+    # cover is compared year to year, so the seasonal cycle (winter dieback and
+    # spring/summer regrowth) is already netted out of those numbers.
+    #
+    # Published annual curves used here:
+    #   Ammophila  x = [-0.6, 0.1, 0.6, 2.0, 2.1] m/yr,  y = [-0.5, 0, 0.15, 0, -0.5] /yr
+    #   Buckthorn  x = [-1.4, -0.6, 0, 0.25, 2.8] m/yr,  y = [-0.5, 0, 0.02, 0, -0.5] /yr
+    #
+    # This model updates vegetation MONTHLY (vegdt = 30 days) and includes an
+    # explicit winter loss. The annual curves therefore have to be translated to
+    # a monthly curve that, summed over a year, stays consistent with the
+    # published annual net response.
+    #
+    # Why simple scaling (x*dtYear, y*dtYear, i.e. /12) does NOT work:
+    #   1) Double counting of winter: the annual curve already contains the
+    #      winter dip, and the model removes WINTER_DECAY on top of it. With /12
+    #      scaling the maximum growth (~0.15/yr) is smaller than the imposed
+    #      winter loss (0.25/yr), so vegetation can only decline.
+    #   2) The piecewise-linear curve does not sum linearly when burial varies
+    #      from month to month (it only does for a perfectly constant burial
+    #      rate), so a plain rescaling misrepresents bursty months.
+    #
+    # TRANSLATION RULES (per vertex)
+    # ------------------------------
+    # Rule 1 - Burial thresholds, core vertices x2, x3, x4:   x_month = x_annual / 12
+    #   Burial is a rate (m/yr); dividing by 12 gives the same rate per monthly
+    #   update. Exact for steady burial, which is consistent with the observed
+    #   steady dune volume growth (~30 m3/m over the simulation).
+    #
+    # Rule 2 - Decline / neutral values y2, y4:   y_month = y_annual / 12
+    #   Loss of vigour without burial is a slow process acting all year.
+    #   Note: the Ammophila curve then gives ~-0.01/month at zero burial, which
+    #   is the annual zero-burial response (-0.071/yr) spread over 12 months.
+    #
+    # Rule 3 - Growth peak y3:   y3_month = (y3_annual + W) / N_OPT
+    #   CLOSURE CONDITION (bookkeeping, not an extra hypothesis):
+    #       gross growth - winter loss = Nield & Baas net
+    #   The model splits the annual net into gross growing-season growth and an
+    #   explicit winter loss W. To stay consistent with the published net, the
+    #   growth side must equal the net PLUS W. This is the standard split
+    #   "net production = gross growth - senescence/mortality".
+    #   - Recovery is CONDITIONAL: the extra growth sits in the curve's peak, so
+    #     it only happens in months with near-optimal burial. In a year without
+    #     good burial months there is no recovery and cover declines.
+    #   - N_OPT = effective number of months PER YEAR with near-optimal burial,
+    #     i.e. the months in which the annual growth is actually realised.
+    #     NOT the length of the growing season (seasonal_factor allows growth
+    #     from Mar to Nov). With steady optimal burial every month this curve
+    #     would grow too fast; it works because real monthly burial is only
+    #     occasionally near the optimum.
+    #
+    # Rule 4 - Tails x1/y1 and x5/y5: event tolerance  (ASSUMPTION)
+    #   Nield & Baas lethal limits are SUSTAINED annual rates. A plant tolerates
+    #   a single month of strong erosion or burial much better than 1/12 of a
+    #   lethal annual rate suggests, so the tails are NOT divided by 12 but
+    #   expressed as fractions of the annual limits:
+    #     erosion side:      x1 = 0.42 * annual limit, y1 = 0.6 * annual decline
+    #                        (abrupt loss when roots are exposed)
+    #     over-burial side:  x5 = 0.14 * annual limit, y5 = 0.2 * annual decline
+    #                        (gradual loss as shoots fail to emerge, ~5 months)
+    #   The ratios were taken from the earlier empirical monthly curve; supporting
+    #   them with burial/erosion tolerance experiments would strengthen them.
+    #   Below x1, compute_increment removes all cover (plant lost).
+    #
+    # RESULTING MONTHLY VERTICES
+    # --------------------------
+    #   Ammophila  x = [-0.25, 0.0083, 0.050, 0.167, 0.30] m/month
+    #              y = [-0.30, 0.000,  0.120, 0.000, -0.10]
+    #   Buckthorn  x = [-0.583, -0.050, 0.000, 0.021, 0.40] m/month
+    #              y = [-0.30,  0.000,  0.081, 0.000, -0.10]
+    #   The Ammophila curve reproduces the earlier empirical curve
+    #   [(-0.25,-0.30), (0,-0.01), (0.07,0.12), (0.15,0.02), (0.30,-0.10)]
+    #   closely. Only real offset: peak at 0.05 instead of 0.07 m/month
+    #   (0.6/9 = 0.067 if only growing-season burial is counted).
+    #   Buckthorn uses the same rules. Its peak (0.081) is much larger relative
+    #   to its annual value than Ammophila's, because it must recover the same
+    #   winter loss W. If buckthorn (deciduous) has a different winter loss,
+    #   give it its own W.
+    #
+    # PARAMETERS: WHERE EACH NUMBER COMES FROM
+    # ----------------------------------------
+    #   WINTER_MONTHS = [11,12,1,2,3]  winter loss period.
+    #   WINTER_DECAY  = 0.05/month     winter loss of cover, applied after the
+    #                                  burial response. Sets the AMPLITUDE of the
+    #                                  seasonal swings (W = 0.25/yr). Calibrates
+    #                                  amplitude only; the TREND still comes from
+    #                                  Nield & Baas, so comparing it with the
+    #                                  measurements is a genuine validation.
+    #   W             = WINTER_DECAY * len(WINTER_MONTHS); automatically linked,
+    #                   so changing the winter decay keeps the annual balance.
+    #   N_OPT         = 3.33 months; BACK-CALCULATED from the empirical peak
+    #                   (0.12 = (0.15 + 0.25) / N_OPT). Weakest link: can be
+    #                   checked independently (without vegetation data) by
+    #                   counting, per year, the growing-season months with
+    #                   burial near the optimum in a model run.
+    #   TAIL_*        = event-tolerance ratios (Rule 4, assumption).
+    #
+    # OTHER NOTES
+    # -----------
+    #   - seasonal_factor() multiplies POSITIVE increments only (growth reduced
+    #     to 5% in Dec-Feb); declines act all year.
+    #   - March and November get both full growth (seasonal_factor = 1) and
+    #     winter decay. Kept as in the calibrated setup; changing it changes the
+    #     balance behind N_OPT.
+    #   - Species 2 only establishes where species 1 cover > 0.5 or where
+    #     species 2 is already present; total cover is capped at 1 with
+    #     species 2 taking precedence.
+    #   - Validation data: vegetation cover, Strypsteen et al. (2024), Oosteroever.
+    # ==========================================================================
+    # WINTER_MONTHS = [11, 12, 1, 2, 3]
+    # WINTER_DECAY = 0.05                        # cover lost per winter month
+    # W = WINTER_DECAY * len(WINTER_MONTHS)      # annual winter loss (= 0.25)
+    # N_OPT = 3.3 #3.33                               # main growth period (months)
+    
+    # # published annual curves: burial (m/yr) -> cover change (1/yr)
+    # xa1, ya1 = [-0.6, 0.1, 0.6, 2.0, 2.1], [-0.5, 0.0, 0.15, 0.0, -0.5]    # Ammophila, changed the peak for Nolet et al, 2018.
+    # xa2, ya2 = [-1.4, -0.6, 0.0, 0.25, 2.8], [-0.5, 0.0, 0.02, 0.0, -0.5]  # Buckthorn
+    
+    # # event tolerance of the tails relative to the annual limits
+    # TAIL_X1, TAIL_Y1 = 0.25 / 0.6, 0.30 / 0.5  # erosion side
+    # TAIL_X5, TAIL_Y5 = 0.30 / 2.1, 0.10 / 0.5  # over-burial side
+    
+    # def monthly_curve(xa, ya):
+    #     x = [xa[0] * TAIL_X1, xa[1] / 12, xa[2] / 12, xa[3] / 12, xa[4] * TAIL_X5]
+    #     y = [ya[0] * TAIL_Y1, ya[1] / 12, (ya[2] + W) / N_OPT, ya[3] / 12, ya[4] * TAIL_Y5]
+        
+    #     return x, y
+    
+    # (x1_spec1, x2_spec1, x3_spec1, x4_spec1, x5_spec1), \
+    #     (y1_spec1, y2_spec1, y3_spec1, y4_spec1, y5_spec1) = monthly_curve(xa1, ya1)
+    # (x1_spec2, x2_spec2, x3_spec2, x4_spec2, x5_spec2), \
+    #     (y1_spec2, y2_spec2, y3_spec2, y4_spec2, y5_spec2) = monthly_curve(xa2, ya2)
+
+    # x1_spec2, x2_spec2, x3_spec2, x4_spec2, x5_spec2 = -1.4*dtYear, -0.65*dtYear, 0.0*dtYear, 0.2*dtYear, 2.8*dtYear
+    # y1_spec2, y2_spec2, y3_spec2, y4_spec2, y5_spec2 = -0.5*dtYear, 0.0*dtYear, sp2_peak*dtYear, 0.0*dtYear, -0.5*dtYear
+
     # --- Sedimentation/erosion ---
     dh_df = 0.0
     if abs(srampnew-srampold) > 0.0:
@@ -556,7 +815,8 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
     # --- Helper to compute growth increment with seasonal modulation ---
     def compute_increment(dh, x_vals, y_vals, s_vals, rhov_old):
         if dh < x_vals[0]:
-            increment = 0.0
+            #increment = 0.0
+            increment = -rhov_old
         elif dh >= x_vals[0] and dh < x_vals[1]:
             increment = (dh-x_vals[0])*s_vals[0] + y_vals[0]
         elif dh >= x_vals[1] and dh < x_vals[2]:
@@ -618,16 +878,18 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
     if month is not None:
         # Define winter months (Dec, Jan, Feb)
         if month in [11, 12, 1, 2, 3]:
-            winter_decay = 0.04  # reduction measuerd of 10-20% per winter, so about 
+            winter_decay = 0#0.04  # reduction measuerd of 10-20% per winter, so about 
             winter_decay = 0.05  # reduction measuerd of 10-20% per winter, so about 
 
+        # if month in WINTER_MONTHS:
+        #     winter_decay = WINTER_DECAY
+            
             rhov_dfnew_spec1 = max(0, rhov_dfnew_spec1 - winter_decay)
             rhov_dtnew_spec1 = max(0, rhov_dtnew_spec1 - winter_decay)
             rhov_dbnew_spec1 = max(0, rhov_dbnew_spec1 - winter_decay)
             rhov_dfnew_spec2 = max(0, rhov_dfnew_spec2 - winter_decay)
             rhov_dtnew_spec2 = max(0, rhov_dtnew_spec2 - winter_decay)
             rhov_dbnew_spec2 = max(0, rhov_dbnew_spec2 - winter_decay)
-                       
             
     
     # Cap values between 0 and 1, and adjust species balance as before
@@ -648,6 +910,242 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
 
     return rhov_dfnew_spec1, rhov_dtnew_spec1, rhov_dbnew_spec1, rhov_dfnew_spec2, rhov_dtnew_spec2, rhov_dbnew_spec2
 
+### Trailing-annual-burial vegetation routines (Nield & Baas curve applied to annual rates)
+ 
+# YEAR_S = 3600 * 24 * 365  # seconds in a year, same definition as dtYear in vegNield
+ 
+ 
+# def monthly_burial(sold, snew, ylold, ylnew, ysold, ysnew, srampold, srampnew, betas, betal):
+#     """
+#     Burial/erosion (m) of each vegetation zone since the previous vegetation update.
+#     Identical definitions to the ones used inside vegNield / vegNield_seasonal.
+#     """
+#     dh_df = 0.0
+#     if abs(srampnew - srampold) > 0.0:
+#         dh_df = srampnew - srampold
+#     elif abs(ysnew - ysold) > 0.0:
+#         dh_df = (ysnew - ysold) * betas
+#     dh_dt = snew - sold
+#     dh_db = -(ylnew - ylold) * betal
+#     return dh_df, dh_dt, dh_db
+ 
+ 
+# def _nield_increment(dh, xv, yv):
+#     """
+#     Piecewise-linear Nield & Baas response.
+#     Returns (increment, reset). reset=True means burial/erosion below x1 -> cover lost.
+#     """
+#     if dh < xv[0]:
+#         return 0.0, True
+#     for k in range(4):
+#         if xv[k] <= dh < xv[k + 1]:
+#             return yv[k] + (dh - xv[k]) * (yv[k + 1] - yv[k]) / (xv[k + 1] - xv[k]), False
+#     return yv[4], False
+ 
+ 
+# def vegNield_seasonal_annual(dt, dh_df_ann, dh_dt_ann, dh_db_ann,
+#                              rhov_df_spec1, rhov_dt_spec1, rhov_db_spec1,
+#                              rhov_df_spec2, rhov_dt_spec2, rhov_db_spec2,
+#                              month=None, apply_winter_decay=False, winter_decay=0.05):
+#     """
+#     Nield & Baas (2008) vegetation response evaluated on TRAILING ANNUAL burial (m/year),
+#     with the resulting annual cover change spread over the update interval dt.
+ 
+#     - Curve vertices are the published annual values, unscaled.
+#     - The annual increment is multiplied by dtYear (fraction of a year in dt).
+#     - Positive increments are redistributed seasonally with factors normalised to
+#       a yearly mean of 1, so the annual total from the curve is preserved.
+#     """
+#     sp1_peak = 0.2
+#     sp2_peak = 0.05
+#     dtYear = dt / YEAR_S
+ 
+#     x_sp1 = [-0.6, 0.2, 0.6, 2.0, 2.2]
+#     y_sp1 = [-0.5, 0.0, sp1_peak, 0.0, -0.5]
+#     x_sp2 = [-1.4, -0.65, 0.0, 0.2, 2.8]
+#     y_sp2 = [-0.5, 0.0, sp2_peak, 0.0, -0.5]
+ 
+#     month_factors = [0.05, 0.05, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.05]
+
+#     season_norm = 12.0 / sum(month_factors)
+ 
+#     def update(rhov_old, dh_ann, xv, yv):
+#         inc_ann, reset = _nield_increment(dh_ann, xv, yv)
+#         if reset:
+#             return 0.0
+#         inc = inc_ann * dtYear
+#         if inc > 0 and month is not None:
+#             inc *= month_factors[month - 1] * season_norm
+#         return max(rhov_old + inc, 0.0)
+ 
+#     df1 = update(rhov_df_spec1, dh_df_ann, x_sp1, y_sp1)
+#     dt1 = update(rhov_dt_spec1, dh_dt_ann, x_sp1, y_sp1)
+#     db1 = update(rhov_db_spec1, dh_db_ann, x_sp1, y_sp1)
+ 
+#     # species 2 establishes only where species 1 is dense or species 2 already exists
+#     df2 = update(rhov_df_spec2, dh_df_ann, x_sp2, y_sp2) if (df1 > 0.5 or rhov_df_spec2 > 0.0) else 0.0
+#     dt2 = update(rhov_dt_spec2, dh_dt_ann, x_sp2, y_sp2) if (dt1 > 0.5 or rhov_dt_spec2 > 0.0) else 0.0
+#     db2 = update(rhov_db_spec2, dh_db_ann, x_sp2, y_sp2) if (db1 > 0.5 or rhov_db_spec2 > 0.0) else 0.0
+ 
+#     if apply_winter_decay and month is not None and month in [11, 12, 1, 2, 3]:
+#         df1, dt1, db1 = (max(0.0, v - winter_decay) for v in (df1, dt1, db1))
+#         df2, dt2, db2 = (max(0.0, v - winter_decay) for v in (df2, dt2, db2))
+ 
+#     df1, dt1, db1, df2, dt2, db2 = (min(max(v, 0.0), 1.0) for v in (df1, dt1, db1, df2, dt2, db2))
+ 
+#     if df1 + df2 > 1.0:
+#         df1 = 1.0 - df2
+#     if dt1 + dt2 > 1.0:
+#         dt1 = 1.0 - dt2
+#     if db1 + db2 > 1.0:
+#         db1 = 1.0 - db2
+ 
+#     return df1, dt1, db1, df2, dt2, db2
+ 
+ 
+# def aeolian_qwnet(i, p, dune_x, dune_z, vbeach,
+#                   wave_ts, period_ts, wavedir_ts, swl_ts, wspeed_ts, wdir_ts):
+#     """
+#     Hydrodynamics (runup) + beach aeolian supply for timestep i.
+#     Mirrors the formulation in the main loop of main.py, so the pre-pass and the
+#     simulation use the same physics. If you change the main-loop formulation, change it here too.
+#     Returns qwnet, tetaw, wspeed, r, swl.
+#     """
+#     h0 = wave_ts[i] / 1.414
+#     tp = period_ts[i]
+#     swl = swl_ts[i]
+ 
+#     # waves only from the seaward half-plane (same window as main loop)
+#     dwave = ((wavedir_ts[i] - p.shorn + 180.0) % 360.0) - 180.0
+#     if abs(dwave) > 90.0:
+#         h0 = 0.0
+#         if p.shorn < 90:
+#             tp = 0.0  # main loop only resets tp in this branch
+#     if tp <= 0.0:
+#         tp = 1.0
+#     if h0 <= 0.0:
+#         h0 = 0.1
+ 
+#     LO = 1.5613 * (0.95 * tp) ** 2
+#     slope_foreshore = dune_z['ramp_toe'] / max(dune_x['shoreline'] - dune_x['ramp_toe'], 30.0)
+#     r = (0.158 / 0.03) * slope_foreshore * np.sqrt(h0 * LO)
+#     X = max(2 * vbeach / p.dfoot * (1 - swl / p.dfoot), 0.0)
+#     rprim = r * np.exp(-2 * p.cf * X) + p.dfoot * (1 - np.exp(-2 * p.cf * X))
+#     if rprim > p.dfoot:
+#         r = rprim
+ 
+#     # wind only within +-80 deg of shore normal (same window as main loop)
+#     dwind = ((wdir_ts[i] - p.shorn + 180.0) % 360.0) - 180.0
+#     if abs(dwind) <= 80.0:
+#         tetaw = dwind
+#         wspeed = wspeed_ts[i]
+#     else:
+#         tetaw = 0.0
+#         wspeed = 0.0
+ 
+#     wcrit = p.awind * np.sqrt((p.rhos - p.rhoa) / p.rhoa * p.g * p.d50)
+#     z0 = p.d50 / 30
+#     wshear = wspeed * p.kappa / np.log(p.z / z0)
+#     if wshear > wcrit:
+#         mwe = p.kw * np.sqrt(p.d50 / p.d50ref) * p.rhoa * wshear ** 2 / p.g * (wshear - wcrit)
+#     else:
+#         mwe = 0.0
+#     qwe = mwe / (p.rhos * (1 - p.p))
+ 
+#     yr = dune_x['ramp_toe'] + (1 - (r + swl) / p.dfoot) * (dune_x['shoreline'] - dune_x['ramp_toe'])
+#     bdry = yr - dune_x['ramp_toe']
+#     if r + swl >= p.dfoot or yr < dune_x['ramp_toe']:
+#         bdry = 0.0
+#     f = bdry / abs(np.cos(np.radians(tetaw)))
+#     qw = qwe * (1 - np.exp(-p.cwrate * f))
+#     qwnet = qw * np.cos(np.radians(tetaw))
+ 
+#     z_top = max(dune_z['seaward_crest'], dune_z['ramp_dike_temp'])
+#     qwnet = qwnet * max(1.0 - 4.2 * (z_top - p.dfoot) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
+ 
+#     return qwnet, tetaw, wspeed, r, swl
+ 
+ 
+# def prepass_burial_seed(p, dune_x0, dune_z0, substrate_x, substrate_z, vbeach0, vramp0,
+#                         wave_ts, period_ts, wavedir_ts, swl_ts, wspeed_ts, wdir_ts,
+#                         n_buffer, n_steps_max):
+#     """
+#     Option 1 pre-pass: run aeolian deposition only (no wave erosion, no vegetation
+#     feedback, fixed shoreline) over the first year of forcing, and record the monthly
+#     burial of each vegetation zone exactly as the vegetation routine would see it.
+ 
+#     Returns three lists (df, dt, db) of length n_buffer with monthly burial (m),
+#     used to seed the trailing-annual buffers.
+#     """
+#     dune_x = dict(dune_x0)
+#     dune_z = dict(dune_z0)
+#     vramp = vramp0
+#     deltavall = 0.0
+#     cumdt = getattr(p, 'cumdt', 0)
+ 
+#     s_ref = dune_z['seaward_crest']
+#     ys_ref = dune_x['ramp_toe']
+#     yl_ref = dune_x['lee_foot']
+#     sramp_ref = dune_z['ramp_crest']
+ 
+#     seed_df, seed_dt, seed_db = [], [], []
+#     n_steps = min(n_steps_max, len(wave_ts))
+ 
+#     for i in range(n_steps):
+#         cumdt += p.dt
+#         update_now = False
+#         if cumdt >= p.vegdt:
+#             cumdt = 0
+#             update_now = True
+ 
+#         qwnet, tetaw, wspeed, r, swl = aeolian_qwnet(
+#             i, p, dune_x, dune_z, vbeach0,
+#             wave_ts, period_ts, wavedir_ts, swl_ts, wspeed_ts, wdir_ts)
+ 
+#         if qwnet > 0.0:
+#             qs_ramp, qs_crest, qs_lee = deposition_dune(
+#                 dune_x, dune_z, substrate_x, substrate_z, qwnet, p.dt, tetaw, wspeed,
+#                 p.rhos, p.rhoa, p.d50, p.kappa, p.z, p.vegcount, p.awind,
+#                 rhov_df=p.rhov_df, rhov_dt=p.rhov_dt, rhov_db=p.rhov_db,
+#                 rhov_df2=p.rhov_df2 if p.vegcount == 1 else 0,
+#                 rhov_dt2=p.rhov_dt2 if p.vegcount == 1 else 0,
+#                 rhov_db2=p.rhov_db2 if p.vegcount == 1 else 0)
+#             dune_x, dune_z, _, _, _, deltavall = morpho_update(
+#                 dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee,
+#                 0.0, 0.0, r, swl, 0.0, p.dt,
+#                 p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)
+#             vramp = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+#                                    dune_x['ramp_crest'], dune_x['ramp_toe'])
+ 
+#         if update_now:
+#             dh_df, dh_dt, dh_db = monthly_burial(
+#                 s_ref, dune_z['seaward_crest'], yl_ref, dune_x['lee_foot'],
+#                 ys_ref, dune_x['ramp_toe'], sramp_ref, dune_z['ramp_crest'],
+#                 p.betas, p.betal)
+#             seed_df.append(dh_df)
+#             seed_dt.append(dh_dt)
+#             seed_db.append(dh_db)
+#             s_ref = dune_z['seaward_crest']
+#             ys_ref = dune_x['ramp_toe']
+#             yl_ref = dune_x['lee_foot']
+#             sramp_ref = dune_z['ramp_crest']
+#             if len(seed_df) >= n_buffer:
+#                 break
+ 
+#     # forcing shorter than one buffer: repeat the months that were obtained
+#     if 0 < len(seed_df) < n_buffer:
+#         k = len(seed_df)
+#         seed_df = [seed_df[j % k] for j in range(n_buffer)]
+#         seed_dt = [seed_dt[j % k] for j in range(n_buffer)]
+#         seed_db = [seed_db[j % k] for j in range(n_buffer)]
+#     elif len(seed_df) == 0:
+#         seed_df = [0.0] * n_buffer
+#         seed_dt = [0.0] * n_buffer
+#         seed_db = [0.0] * n_buffer
+ 
+#     return seed_df, seed_dt, seed_db
+ 
+    
 def veg(ys, ysnew, yl, ylnew, sramp, srampnew, betas, betal, s, snew, dt,rhov_df,rhov_dt,rhov_db):
     """
     Vegetation growth function adapted from Duran and Moore (2014) 
@@ -958,7 +1456,7 @@ def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, 
     # check if everything should be deposited in the ramp or not
     z_dike = dike_surface_z(dune_x['seaward_crest'], substrate_x, substrate_z)
     
-    if dx_ramp == 0 or dune_x['ramp_toe'] <= substrate_x[4] or (dune_x['seaward_crest'] <= substrate_x[3] and dune_z['seaward_crest'] <= substrate_z[3] and dune_z['ramp_dike_temp']==substrate_z[2]) or ((abs(dune_z['seaward_crest'] - z_dike) <= 0.005 or dune_z['seaward_crest'] < z_dike - 0.005) and dune_z['ramp_crest'] < dune_z['ramp_dike_temp']): # condition where no ramp exists anymore because of erosion, so not need to calculate everything as everything will end up on the ramp
+    if dx_ramp == 0 or dune_x['ramp_toe'] <= substrate_x[4] or (dune_x['seaward_crest'] <= substrate_x[3] and dune_z['seaward_crest'] <= substrate_z[3] and dune_z['ramp_dike_temp']==substrate_z[2]) or ((abs(dune_z['seaward_crest'] - z_dike) <= 0.005 or dune_z['seaward_crest'] < z_dike - 0.005) and dune_z['ramp_crest'] < dune_z['ramp_dike_temp']) or (dune_x['seaward_crest'] <= substrate_x[4] and dune_z['seaward_crest'] < substrate_z[3] and dune_x['seaward_crest'] > substrate_x[3]): # condition where no ramp exists anymore because of erosion, so not need to calculate everything as everything will end up on the ramp
         qs_ramp = qwnet * dt
         qs_crest = 0.0
         qs_lee = 0.0    
@@ -1108,7 +1606,7 @@ def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, 
         # qs_lee = qs_total - (qs_ramp + qs_crest)
         
          
-        if dune_z['ramp_crest'] < dune_z['seaward_crest']: #case with scarp, enforce all depo in front             
+        if (dune_z['ramp_crest'] < dune_z['seaward_crest']) or (dune_z['ramp_crest'] > dune_z['ramp_toe_temp'] and dune_z['ramp_toe_temp'] > dune_z['ramp_toe']): #case with scarp, enforce all depo in front             
             qs_ramp = qwnet * dt
             qs_crest = 0.0
             qs_lee = 0.0
@@ -1179,9 +1677,10 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                 # calculate maximum erosion volume on the ramp based on the dike limit
                 if dune_x['seaward_crest'] <= substrate_x[3] and dune_z['seaward_crest'] - dfoot > s_hs: #scarp over the dike, hence the lee portion is limited for erosion                 
                     volume_max_ero = partial_volume(dune_x, dune_z, substrate_x, np.asarray(substrate_z, dtype=float) - np.asarray(substrate_z, dtype=float) + substrate_z[2], dune_x['lee_foot'], dune_x['ramp_toe']) #lee dune is sheltered, so only calculate the volume above the substrate as available               
+                elif dune_x['seaward_crest'] > substrate_x[3] and dune_x['seaward_crest'] < substrate_x[4] and (r+swl) < substrate_z[3]:
+                    volume_max_ero = partial_volume(dune_x, dune_z, substrate_x, np.asarray(substrate_z, dtype=float) - np.asarray(substrate_z, dtype=float) + substrate_z[2], runup_reach_dike_x-0.0001, dune_x['ramp_toe']) #small portion of the face still available to erode           
                 else: #whole dune is game
                     volume_max_ero = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe']) #whole dune is game
-                    
                     
                 if erod_ramp >= volume_max_ero:
                     erod_ramp = volume_max_ero #pad it to the max erosion volume on the ramp
@@ -1604,13 +2103,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     x_foot_max = substrate_x[3] + (s_hs)/betas
                     vrampmax   = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs)))
             else:
-                if dune_z['seaward_crest'] == dune_z['ramp_crest']:
-                    vrampmax = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z)
-                else:
-                    x_foot_max = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot)/betas)
-                    vrampmax   = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], x_foot_max, betas, dfoot, substrate_x, substrate_z)
+                x_foot_max = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot)/betas)
+                vrampmax   = ramp_volume(dune_z['seaward_crest']-dfoot, dune_z['seaward_crest']-dfoot, dune_x['seaward_crest'], x_foot_max, betas, dfoot, substrate_x, substrate_z)
              
-            vrampnew   = vramp + deltavramp
             vrampnew   = vramp + deltavramp
             
             # use different pivot point for detached case:
@@ -1799,7 +2294,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                 dune_z_crest = np.array([sramp_potential, sramp_potential, 0])
         
                                 # volume between crest line and substrate
-                                V = np.trapz(dune_z_crest, dune_x_crest)
+                                V = np.trapezoid(dune_z_crest, dune_x_crest)
                         
                                 return V - vol_extra
                             
@@ -1938,7 +2433,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                                         dune_z_crest = np.array([sramp_potential - s_hs, sramp_potential - s_hs, 0])
                 
                                         # volume between crest line and substrate
-                                        V = np.trapz(dune_z_crest, dune_x_crest)
+                                        V = np.trapezoid(dune_z_crest, dune_x_crest)
                                 
                                         return V - vol_extra
                                     
@@ -1973,14 +2468,38 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         
                 if vrampnew < vrampmax: # check if the volume in the front of dune is below the maximum
                 
+                    # def f_ramp(sramp_potential):
+                    #     return ramp_volume(sramp_potential, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z) - vrampnew
+
+                    s_max = dune_z['seaward_crest'] - dfoot
+                    x_foot_max = dune_x['seaward_crest'] + s_max / betas
+                    
                     def f_ramp(sramp_potential):
-                        return ramp_volume(sramp_potential, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z) - vrampnew
-                
+                        # Toe position consistent with the maximum-height geometry
+                        ys_potential = x_foot_max - ((s_max - sramp_potential) / betas)
+                    
+                        # Use the potential toe position as the reference toe
+                        return ramp_volume(
+                            sramp_potential,
+                            sramp_potential,  # makes yspotential equal to ys_potential
+                            dune_x['seaward_crest'],
+                            ys_potential,
+                            betas,
+                            dfoot,
+                            substrate_x,
+                            substrate_z
+                        ) - vrampnew
+                    
+                    
                     # solve for sramp_potential that gives the target volume
-                    sramp_new_r = brentq(f_ramp, dune_z['ramp_crest']-dfoot, dune_z['seaward_crest']-dfoot) # find the new ramp height using the root finder
+                    if dune_z['ramp_crest'] == dune_z['seaward_crest'] and dune_z['ramp_toe_temp'] > dune_z['ramp_toe'] and dune_z['ramp_toe_temp'] < dune_z['ramp_crest']:
+                        sramp_new_r = brentq(f_ramp, dune_z['ramp_toe_temp']-dfoot, dune_z['seaward_crest']-dfoot) # find the new ramp height using the root finder
+                    else:
+                        sramp_new_r = brentq(f_ramp, dune_z['ramp_crest']-dfoot, dune_z['seaward_crest']-dfoot) # find the new ramp height using the root finder
                     #ys_new_r = dune_x['ramp_crest'] + (sramp_new_r / betas)
-                    ys_new_r = ys + ((sramp_new_r-sramp) / betas)
-            
+                    #ys_new_r = ys + ((sramp_new_r-sramp) / betas)
+                    ys_new_r = x_foot_max - ((s_max - sramp_new_r) / betas)
+                    
                 else: # if the volume exceeds the maximum, then move the role thing with fixed ramp height and slope, but moving ysprim.
                     sramp_new_r = dune_z['seaward_crest']-dfoot  # ramp full
                     vextra = vrampnew - vrampmax # extra volume that needs to be accomodated by moving the dune toe and ysprim
@@ -2100,33 +2619,40 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     else:
                         return V - vcrestnew
                 
-                def f_crest_triangular_detach(s_potential):
+                def f_crest_triangular_detach(s_pot):
         
-                    ystemp = dune_x['seaward_crest'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block
-                    #yltemp = dune_x['crest_temp']
-                    yltemp = substrate_x[2] # fixed at dike position
+                    tx, tz = dict(dune_x), dict(dune_z)
+                    _ys = dune_x['seaward_crest'] - (s_pot - s) / betas
+                    tx['crest_temp'] = dune_x['crest_temp'] + (s_pot - s) / betal
+                    tz['crest_temp'] = s_pot + dfoot
+                    for _k in ('seaward_crest', 'ramp_dike_temp', 'ramp_crest'):
+                        tx[_k] = _ys; tz[_k] = s_pot + dfoot
+                    return partial_volume(tx, tz, substrate_x, substrate_z, tx['lee_foot'], tx['ramp_toe']) - _v_before - deltavcrest
+                    # ystemp = dune_x['seaward_crest'] # fix it but transform it in the new "foot" so to account for the increase as a trapezoid, not block
+                    # #yltemp = dune_x['crest_temp']
+                    # yltemp = substrate_x[2] # fixed at dike position
         
-                    ysprim_potential = ystemp - ((s_potential-s)/betas)
-                    ylprim_potential = yltemp + ((s_potential-s)/betal)
+                    # ysprim_potential = ystemp - ((s_potential-s)/betas)
+                    # ylprim_potential = yltemp + ((s_potential-s)/betal)
             
-                    # linear crest line: from (ylprim_potential, s_potential) to (ysprim_potential, s_potential)
-                    dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
-                    dune_z_crest = np.array([s + dfoot, s_potential + dfoot, s_potential + dfoot, s + dfoot])
+                    # # linear crest line: from (ylprim_potential, s_potential) to (ysprim_potential, s_potential)
+                    # dune_x_crest = np.array([yltemp, ylprim_potential, ysprim_potential, ystemp])
+                    # dune_z_crest = np.array([s + dfoot, s_potential + dfoot, s_potential + dfoot, s + dfoot])
             
-                    n_per_segment = 100  # how many points per segment
-                    x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
-                    z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
+                    # n_per_segment = 100  # how many points per segment
+                    # x_dense = np.concatenate([np.linspace(dune_x_crest[i], dune_x_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_x_crest)-1)] + [[dune_x_crest[-1]]])
+                    # z_dense = np.concatenate([np.linspace(dune_z_crest[i], dune_z_crest[i+1], n_per_segment, endpoint=False) for i in range(len(dune_z_crest)-1)] + [[dune_z_crest[-1]]])
             
-                    # substrate under crest
-                    z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
+                    # # substrate under crest
+                    # z_sub_crest = np.interp(x_dense, substrate_x, substrate_z)
             
-                    # volume between crest line and substrate
-                    V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
+                    # # volume between crest line and substrate
+                    # V = trapezoid_positive(z_dense - z_sub_crest, x_dense)
             
-                    if s_potential == s:
-                        return -vcrestnew
-                    else:
-                        return V - vcrestnew
+                    # if s_potential == s:
+                    #     return -vcrestnew
+                    # else:
+                    #     return V - vcrestnew
                     
                 def f_crest_triangular_detach_flatcrest(s_potential):
         
@@ -2255,8 +2781,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     detach_tag = 2
                 
                 elif dune_x['lee_crest'] <= substrate_x[2] and dune_z['lee_crest'] < substrate_z[2]: #detached but slumping in the dike
-                    s_new_c = brentq(f_crest_triangular_detach, s_hs, s_max_triangular+s)  # adjust 10 if necessary
+                    
+                    _v_before = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
                 
+                    #s_new_c = brentq(f_crest_triangular_detach, s_hs, s_max_triangular+s)  # adjust 10 if necessary
+                    s_new_c = brentq(f_crest_triangular_detach, s, s_max_triangular + s, xtol=1e-14)
+                    
                     # Calculate corresponding pivot points
                     ysprim_new_c = dune_x['seaward_crest'] - (s_new_c - s) / betas
                     ylprim_new_c = dune_x['crest_temp'] + (s_new_c - s) / betal

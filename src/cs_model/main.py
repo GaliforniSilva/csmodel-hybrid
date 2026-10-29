@@ -50,6 +50,9 @@ HALLIN, C., LARSON, M. & HANSON, H. 2019. Simulating beach and dune evolution at
 
 import sys
 import os
+from pathlib import Path
+from collections.abc import Mapping
+from collections import deque
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
@@ -71,21 +74,8 @@ from types import SimpleNamespace
 # PATH SETUP
 ############################################################################
 
-# if len(sys.argv) < 2:
-#     raise RuntimeError(
-#         "Usage: python main.py path/to/config.yaml"
-#     )
-
-#config_path = sys.argv[1]
-
-package_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(package_dir)  # parent folder
-
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from cs_model.functions import *
-from cs_model.mass_conservation import calculate_compartment_volumes, calculate_timestep_conservation
+from .functions import *
+from .mass_conservation import calculate_compartment_volumes, calculate_timestep_conservation
 import pickle
 
 # Persistent vegetation rendering state used by snapshot plotting so stems
@@ -96,17 +86,31 @@ _VEG_RENDER_STATE = {}
 # INITIALIZATION OF PARAMETERS
 ############################################################################
 
-def load_config(config_path):
+def load_config(config_source):
     """
-    Load YAML configuration file from a given path.
+    Load configuration from a YAML file path or an in-memory dictionary.
     """
-    if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
+    if isinstance(config_source, Mapping):
+        return dict(config_source)
 
-    with open(config_path, "r") as f:
-        cfg = yaml.safe_load(f)
+    if isinstance(config_source, (str, os.PathLike, Path)):
+        config_path = os.fspath(config_source)
+        if not os.path.isfile(config_path):
+            raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    return cfg
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f)
+
+    raise TypeError(
+        "config_source must be a mapping or a path to a YAML file."
+    )
+def _config_flag(value):
+    """
+    Convert common YAML flag values to bool.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
@@ -1021,19 +1025,20 @@ def _create_evolution_video(frame_paths, output_path, fps=2):
     print(f"Evolution movie saved to {output_path}")
 
 
-def run_model(config_path, check_mass_conservation=False,
+def run_model(config_source, check_mass_conservation=False,
               plot_evolution=False, plot_evolution_interval=5.0,
               save_evolution_movie=False, skip_first_step_conservation=False,
               manual_plot_limits=False, manual_plot_y_lim_top=None,
               manual_plot_y_lim_bottom=None, manual_plot_x_lim_right=None,
               manual_plot_x_lim_left=None, save_evolution_video=False):
     """
-    Run the CS model using a YAML configuration file.
+    Run the CS model using a YAML configuration file or configuration dictionary.
 
     Parameters
     ----------
-    config_path : str
-        Path to the YAML configuration file
+    config_source : str | pathlib.Path | dict
+        Path to the YAML configuration file or an in-memory configuration
+        dictionary with the same structure as the YAML content.
     check_mass_conservation : bool, optional
         If True, perform mass conservation check after simulation and print report.
         Default is False.
@@ -1090,7 +1095,22 @@ def run_model(config_path, check_mass_conservation=False,
     """
 
     # Load configuration
-    config = load_config(config_path)
+    config = load_config(config_source)
+    output_config = config.get('output', {})
+    if not isinstance(output_config, dict):
+        output_config = {}
+
+    output_filename = output_config.get('filename', 'cs_model_results.pkl')
+    output_base = os.path.splitext(output_filename)[0]
+    coupling_mode = _config_flag(
+        output_config.get('coupling', config.get('coupling', False))
+    )
+    save_outputs = not coupling_mode
+    terminal_output_enabled = not coupling_mode
+
+    def log(*args, **kwargs):
+        if terminal_output_enabled:
+            print(*args, **kwargs)
 
 
     # Inject each config key as a variable in the global namespace
@@ -1257,6 +1277,7 @@ def run_model(config_path, check_mass_conservation=False,
         'qs_ramp': [],
         'qwnet': [],
         'qbar': [],
+        'cumdt': [],
         'wave_period': wave_period_time_series,
         'wave_direction': wave_dir_time_series,
         'wind_speed': wind_speed_time_series,
@@ -1286,12 +1307,14 @@ def run_model(config_path, check_mass_conservation=False,
     }
 
     # Initialize cumulative time for vegetation update
-    cumdt = 0
-    vegupdate = 0
+    cumdt = getattr(p, 'cumdt', 0)
+    vegupdate = getattr(p, 'vegupdate', 0)
     s_veg = p.s # allocate value for the vegetation growth calc
     ys_veg = p.ys # allocate value for the vegetation growth calc
     yl_veg = p.yl # allocate value for the vegetation growth calc
     sramp_veg = p.sramp # allocate value for the vegetation growth calc
+    s_veg = dune_z['seaward_crest'] # allocate value for the vegetation growth calc
+    sramp_veg = dune_z['ramp_crest'] # allocate value for the vegetation growth calc
 
     # Initialize varying parameters
     # Calculate initial vbeach from shoreline position (yg) instead of using config value
@@ -1306,7 +1329,7 @@ def run_model(config_path, check_mass_conservation=False,
     rhov_db2 = p.rhov_db2
     volbar = p.volbar
     deltavall = 0
-
+    
     # Calculate initial volumes for conservation tracking
     initial_volumes = calculate_compartment_volumes(
         dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot
@@ -1331,9 +1354,8 @@ def run_model(config_path, check_mass_conservation=False,
 
     # Set up evolution plotting (resolve output base early so snapshots can be saved
     # incrementally during the loop)
-    output_filename = config.get('output', {}).get('filename', 'cs_model_results.pkl')
-    if plot_evolution:
-        _plot_output_base = os.path.splitext(output_filename)[0]
+    if plot_evolution and save_outputs:
+        _plot_output_base = output_base
         _plot_output_dir = os.path.dirname(_plot_output_base) or "."
         _plot_output_name = os.path.basename(_plot_output_base)
         _plot_frames_dir = os.path.join(_plot_output_dir, f"{_plot_output_name}_frames")
@@ -1403,7 +1425,7 @@ def run_model(config_path, check_mass_conservation=False,
             or (manual_plot_x_lim_right is not None)
             or (manual_plot_x_lim_left is not None)
         ):
-            print(
+            log(
                 "Warning: manual plot limits were provided "
                 "but manual_plot_limits=False; automatic plot limits are used."
             )
@@ -1444,7 +1466,8 @@ def run_model(config_path, check_mass_conservation=False,
     # START SIMULATION
     ############################################################################
 
-    for i in range(len(wave_time_series)):
+    #for i in range(len(wave_time_series)):
+    for i in range(time_length_dt):
 
         month_i = month_timeseries[i]
         ### update counter for vegetation
@@ -1501,7 +1524,11 @@ def run_model(config_path, check_mass_conservation=False,
         # calculate approximate runup
         
         LO = 1.5613 * (0.95 * tp) ** 2
-        slope_foreshore = dune_z['ramp_toe']/(dune_x['shoreline']- dune_x['ramp_toe'])
+        if (dune_x['shoreline']- dune_x['ramp_toe']) > 30:
+            slope_foreshore = dune_z['ramp_toe']/(dune_x['shoreline']- dune_x['ramp_toe'])
+        else:
+            slope_foreshore = dune_z['ramp_toe']/(30)
+
         r = (0.158/0.03)*slope_foreshore*np.sqrt(h0 * LO) #we divide by an actual slope and recalculate based on the slope we have so to vary potential dissipation with X
         X = 2 * vbeach / p.dfoot * (1 - swl / p.dfoot)
 
@@ -1534,14 +1561,14 @@ def run_model(config_path, check_mass_conservation=False,
                 if r + swl <= dune_z['seaward_crest']:
                     qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
                 else:
-                    print('OVERWASH')
+                    log('OVERWASH')
                     qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['seaward_crest']-p.dfoot)) / tp)
                     alfa = (((r + swl - p.dfoot) / (dune_z['seaward_crest']-p.dfoot)) - 1) / aover
             else: 
                 if r + swl <= dune_z['ramp_dike_temp']:
                     qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
                 else:
-                    print('OVERWASH')
+                    log('OVERWASH')
                     qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['ramp_dike_temp']-p.dfoot)) / tp)
                     alfa = (((r + swl - p.dfoot) / (dune_z['ramp_dike_temp']-p.dfoot)) - 1) / aover
         else:
@@ -1643,9 +1670,9 @@ def run_model(config_path, check_mass_conservation=False,
             vnourd[i], vnourb[i], vnourbar[i], IV = nour(i, IV, volat, volad, volab, volrb, p.vanr)
             
         # make qbar=0 if the shoreline is already touching the substrate, meaning no sediment is actually transported from the beach to the subtidal
-        if (dune_x['shoreline'] - substrate_x[4])<20:
+        if (dune_x['shoreline'] - substrate_x[4])<1:
             qbar = 0
-                
+        
         # Calculate bar evolution
         volbar, barnour[i] = bar(volbar, qbar, p.dt, vnourbar[i], barnour[i], qnour)
         
@@ -1671,6 +1698,32 @@ def run_model(config_path, check_mass_conservation=False,
             rhov_df, rhov_dt, rhov_db = veg(ys, ysnew, yl, ylnew, sramp, srampnew, betas, betal, s, snew, vegdt,rhov_df,rhov_dt,rhov_db)
             vegupdate = 0
 
+        ######## VEGETATION GROWTH UPDATE #########
+            # update vegetation parameters
+        # if p.vegcount == 1 and vegupdate == 1:
+        #     dh_df_m, dh_dt_m, dh_db_m = monthly_burial(
+        #         s_veg, dune_z['seaward_crest'], yl_veg, dune_x['lee_foot'],
+        #         ys_veg, dune_x['ramp_toe'], sramp_veg, dune_z['ramp_crest'],
+        #         p.betas, p.betal)
+        #     burial_buf_df.append(dh_df_m)
+        #     burial_buf_dt.append(dh_dt_m)
+        #     burial_buf_db.append(dh_db_m)
+        #     ann_scale = YEAR_S / (len(burial_buf_df) * p.vegdt)  # 12 x 30 d -> 365 d
+        #     rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2 = vegNield_seasonal_annual(
+        #         p.vegdt,
+        #         sum(burial_buf_df) * ann_scale,
+        #         sum(burial_buf_dt) * ann_scale,
+        #         sum(burial_buf_db) * ann_scale,
+        #         rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2,
+        #         month=month_i, apply_winter_decay=veg_winter_decay)
+        #     vegupdate = 0
+        #     s_veg = dune_z['seaward_crest']
+        #     ys_veg = dune_x['ramp_toe']
+        #     yl_veg = dune_x['lee_foot']
+        #     sramp_veg = dune_z['ramp_crest']
+        # elif p.vegcount == 0 and vegupdate == 1:
+        #     rhov_df, rhov_dt, rhov_db = veg(ys, ysnew, yl, ylnew, sramp, srampnew, betas, betal, s, snew, vegdt,rhov_df,rhov_dt,rhov_db)
+        #     vegupdate = 0
         
         # update values for next iteration
         vramp = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['ramp_crest'], dune_x['ramp_toe'])
@@ -1691,7 +1744,9 @@ def run_model(config_path, check_mass_conservation=False,
         vbeachtotmin = dune_x['ramp_toe'] * (p.dclos + p.dfoot) + 0.5 * p.dfoot**2 / p.betaf + p.dfoot / p.betaf * p.dclos
 
         # Calculate new shoreline coordinate
-        dune_x['shoreline'] = dune_x['ramp_toe'] + (p.al * (vbeachtotnew - dune_x['ramp_toe'] * (p.dfoot + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
+        if not coupling_mode:
+        #if output_config == {}:
+            dune_x['shoreline'] = dune_x['ramp_toe'] + (p.al * (vbeachtotnew - dune_x['ramp_toe'] * (p.dfoot + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
         
         # Calculate final beach volume for output
         vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
@@ -1764,13 +1819,15 @@ def run_model(config_path, check_mass_conservation=False,
         results['qs_ramp'].append(qs_ramp)
         results['qwnet'].append(qwnet)
         results['qbar'].append(qbar)
+        results['cumdt'].append(cumdt)
 
         ## print progress
         if i % 1000 == 0:
-            print(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
+            #log(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
+            log(f"Progress: {100*i/time_length_dt:.1f}% ({i} of {time_length_dt} time steps)")
 
         ## save profile evolution snapshot (if requested)
-        if plot_evolution:
+        if plot_evolution and save_outputs:
             current_pct = 100.0 * (i + 1) / _total_steps
 
             # Build shared bc_info for all snapshot calls this timestep
@@ -1860,74 +1917,75 @@ def run_model(config_path, check_mass_conservation=False,
     # SAVE RESULTS
     ############################################################################
 
-    with open(output_filename, 'wb') as f:
-        pickle.dump(results, f)
-
-    print(f"Simulation completed. Results saved to {output_filename}.")
+    if save_outputs:
+        with open(output_filename, 'wb') as f:
+            pickle.dump(results, f)
+        log(f"Simulation completed. Results saved to {output_filename}.")
+    else:
+        log("Simulation completed. Coupling mode enabled; file outputs were skipped.")
 
     ############################################################################
     # EVOLUTION MOVIE (if requested)
     ############################################################################
 
-    if save_evolution_movie and not plot_evolution:
-        print("Warning: save_evolution_movie=True has no effect when plot_evolution=False.")
-    if save_evolution_video and not plot_evolution:
-        print("Warning: save_evolution_video=True has no effect when plot_evolution=False.")
+    if save_outputs and save_evolution_movie and not plot_evolution:
+        log("Warning: save_evolution_movie=True has no effect when plot_evolution=False.")
+    if save_outputs and save_evolution_video and not plot_evolution:
+        log("Warning: save_evolution_video=True has no effect when plot_evolution=False.")
 
-    if plot_evolution and save_evolution_movie and _plot_saved_frames:
+    if plot_evolution and save_outputs and save_evolution_movie and _plot_saved_frames:
         movie_path = f"{_plot_output_base}_evolution.gif"
         try:
             _create_evolution_movie(_plot_saved_frames, movie_path)
         except Exception as exc:
-            print(f"Warning: evolution GIF creation failed; continuing without GIF. Error: {exc}")
-    if plot_evolution and save_evolution_video and _plot_saved_frames:
+            log(f"Warning: evolution GIF creation failed; continuing without GIF. Error: {exc}")
+    if plot_evolution and save_outputs and save_evolution_video and _plot_saved_frames:
         video_path = f"{_plot_output_base}_evolution.mp4"
         try:
             _create_evolution_video(_plot_saved_frames, video_path)
         except Exception as exc:
-            print(f"Warning: evolution MP4 creation failed; continuing without MP4. Error: {exc}")
+            log(f"Warning: evolution MP4 creation failed; continuing without MP4. Error: {exc}")
     
     ############################################################################
     # MASS CONSERVATION CHECK (if requested)
     ############################################################################
     
     if check_mass_conservation:
-        print()  # Empty line for better formatting
-        from cs_model.mass_conservation import check_mass_conservation as check_mass
-        mass_check_result = check_mass(results, config, verbose=True,
+        from .mass_conservation import check_mass_conservation as check_mass
+        mass_check_result = check_mass(results, config, verbose=terminal_output_enabled,
                                        skip_first_step=skip_first_step_conservation)
         
         # Save the full mass conservation report to file
         if mass_check_result:
-            mass_report_filename = output_filename.replace('.pkl', '_mass_conservation.txt')
-            with open(mass_report_filename, 'w') as f:
-                f.write("Detailed Mass Conservation Report\n")
-                f.write("=" * 80 + "\n")
-                f.write(f"Output file: {output_filename}\n")
-                f.write("=" * 80 + "\n")
-                f.write("\n")
-                # Write the full detailed report
-                f.write(mass_check_result['report_text'])
-            print(f"Mass conservation report saved to {mass_report_filename}")
+            if save_outputs:
+                mass_report_filename = f"{output_base}_mass_conservation.txt"
+                with open(mass_report_filename, 'w') as f:
+                    f.write("Detailed Mass Conservation Report\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"Output file: {output_filename}\n")
+                    f.write("=" * 80 + "\n")
+                    f.write("\n")
+                    # Write the full detailed report
+                    f.write(mass_check_result['report_text'])
+                log(f"Mass conservation report saved to {mass_report_filename}")
 
-            # Print final summary to terminal for visibility
-            print()
-            print("=" * 80)
-            print("MASS CONSERVATION SUMMARY")
-            print("=" * 80)
-            print(f"Status: {'✓ PASSED' if mass_check_result['conserved'] else '⚠ FAILED'}")
-            print(f"Total Volume Error:         {mass_check_result['total_error']:+.6f} m³/m ({mass_check_result['total_error_percent']:.4f}% of V₀)")
-            print(f"Transport-relative error:   {100*mass_check_result['transport_relative_error']:.4f}%")
-            print(f"Annualised drift rate:       {mass_check_result['drift_per_year']:+.3e} m³/m/year")
-            print(f"Initial Total Volume:        {mass_check_result['initial_total']:.4f} m³/m")
-            print(f"Final Total Volume:          {mass_check_result['final_total']:.4f} m³/m")
-            print(f"Thresholds — transport: {mass_check_result['transport_threshold']}% | volume: {mass_check_result['volume_threshold']}%")
+            log()
+            log("=" * 80)
+            log("MASS CONSERVATION SUMMARY")
+            log("=" * 80)
+            log(f"Status: {'✓ PASSED' if mass_check_result['conserved'] else '⚠ FAILED'}")
+            log(f"Total Volume Error:         {mass_check_result['total_error']:+.6f} m³/m ({mass_check_result['total_error_percent']:.4f}% of V₀)")
+            log(f"Transport-relative error:   {100*mass_check_result['transport_relative_error']:.4f}%")
+            log(f"Annualised drift rate:       {mass_check_result['drift_per_year']:+.3e} m³/m/year")
+            log(f"Initial Total Volume:        {mass_check_result['initial_total']:.4f} m³/m")
+            log(f"Final Total Volume:          {mass_check_result['final_total']:.4f} m³/m")
+            log(f"Thresholds — transport: {mass_check_result['transport_threshold']}% | volume: {mass_check_result['volume_threshold']}%")
             if mass_check_result['conserved']:
-                print("\n✓ Mass is conserved within acceptable limits!")
+                log("\n✓ Mass is conserved within acceptable limits!")
             else:
-                print("\n⚠ WARNING: Mass balance error exceeds acceptable threshold!")
-            print("=" * 80)
-            print()
+                log("\n⚠ WARNING: Mass balance error exceeds acceptable threshold!")
+            log("=" * 80)
+            log()
 
     return results
 
