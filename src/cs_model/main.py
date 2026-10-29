@@ -1262,7 +1262,9 @@ def run_model(config_source, check_mass_conservation=False,
         'runup': [],
         'total_water_level': [],
         'eroded_volume': [],
-        'overwash_volume': [],
+        'overwash_volume': [],       # overwash over the (attached) dune crest to its lee
+        'lee_redistribution': [],    # crest-to-lee transport within a dune detached behind the dike
+        'dune_detached': [],         # True when the dune is behind and not higher than the dike crest
         'dune_height': [dune_z['seaward_crest'] - dune_z['ramp_toe']],
         'dune_foot': [dune_x['ramp_toe']],
         'rhov_df': [],
@@ -1543,7 +1545,7 @@ def run_model(config_source, check_mass_conservation=False,
         runup_time_series[i] = r
         X_time_series[i] = X
         
-        aover = 3.0
+        aover = getattr(p, 'aover', 3.0)
         alfa = 0.0
         # calculate potential erosion
 
@@ -1683,7 +1685,14 @@ def run_model(config_source, check_mass_conservation=False,
 
             
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
-        dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)
+        # Dune detached behind the dike (state at the start of the step): the dune lies
+        # landward of the dike crest AND is not higher than it, so the dike is the
+        # barrier being overtopped. Crest-to-lee transport is then a redistribution of
+        # the detached dune, not overwash. Same condition morpho_update uses to switch
+        # to the sheltered case (no more erosion to the beach).
+        dune_detached = (dune_x['ramp_crest'] <= substrate_x[2]
+                         and dune_z['seaward_crest'] <= substrate_z[2] + 1e-6)
+        dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall, lee_transfer=getattr(p, 'lee_transfer', 0.0))
 
         ######## VEGETATION GROWTH UPDATE #########
             # update vegetation parameters
@@ -1732,7 +1741,7 @@ def run_model(config_source, check_mass_conservation=False,
         dune_foot_time_series[i] = dune_x['ramp_toe']
         total_water_level_time_series[i] = total_water_level
         eroded_volume_time_series[i] = deltavramp_ero #erod_ramp
-        overwash_volume_time_series[i] = erod_overwash
+        overwash_volume_time_series[i] = 0.0 if dune_detached else erod_overwash
                 
         # Calculate beach volume after morpho_update, but before the shoreline movement (so to not account the volume created by the moving dune)
         vbeach_phantom = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
@@ -1804,7 +1813,9 @@ def run_model(config_source, check_mass_conservation=False,
         results['runup'].append(r)
         results['total_water_level'].append(total_water_level)
         results['eroded_volume'].append(deltavramp_ero)
-        results['overwash_volume'].append(erod_overwash)
+        results['overwash_volume'].append(0.0 if dune_detached else erod_overwash)
+        results['lee_redistribution'].append(erod_overwash if dune_detached else 0.0)
+        results['dune_detached'].append(bool(dune_detached))
         results['dune_height'].append(dune_z['seaward_crest'] - dune_z['ramp_toe'])
         results['dune_foot'].append(dune_x['ramp_toe'])
         results['rhov_db'].append(rhov_db)
