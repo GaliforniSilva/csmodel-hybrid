@@ -21,6 +21,7 @@ License:
 # IMPORTS
 ############################################################################
 
+import os
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
@@ -35,55 +36,186 @@ import yaml
 ############################################################################
 
 ### General helper functions
+# Variables whose values are angles in degrees (interpolated on the circle)
+CIRCULAR_COLUMNS = {"wave_direction", "wind_direction"}
+# Variables that are categorical / step-wise (never interpolated linearly)
+STEP_COLUMNS = {"month"}
+
+
+def _to_utc_naive(ts):
+    """Timestamp/DatetimeIndex -> UTC without timezone info (naive input is taken as UTC)."""
+    if isinstance(ts, pd.DatetimeIndex):
+        return ts.tz_convert("UTC").tz_localize(None) if ts.tz is not None else ts
+    ts = pd.Timestamp(ts)
+    return ts.tz_convert("UTC").tz_localize(None) if ts.tzinfo is not None else ts
+
+
+def build_model_time(start_date, dt, end_date=None, time_length_hours=None):
+    """
+    Model time axis.
+
+    Parameters
+    ----------
+    start_date : str or Timestamp
+        Date/time of model t = 0 (UTC if no timezone is given).
+    dt : float
+        Time step (s).
+    end_date : str or Timestamp, optional
+        Last date to simulate. Takes precedence over time_length_hours.
+    time_length_hours : float, optional
+        Run length (h), used when end_date is not given.
+
+    Returns
+    -------
+    n_steps : int
+    dates : pandas.DatetimeIndex
+        Date of the forcing used in each step (step k uses start + k*dt).
+    """
+    t0 = _to_utc_naive(start_date)
+    if end_date is not None:
+        t_end = _to_utc_naive(end_date)
+        if t_end <= t0:
+            raise ValueError(f"end_date ({t_end}) must be after start_date ({t0})")
+        n_steps = int(np.floor((t_end - t0).total_seconds() / dt))
+    elif time_length_hours is not None:
+        n_steps = int(time_length_hours * 3600 / dt)
+    else:
+        raise ValueError("give end_date or time_length_hours in time_params")
+    dates = t0 + pd.to_timedelta(np.arange(n_steps) * dt, unit="s")
+    return n_steps, dates
+
+
 def load_timeseries(
     source,
     length,
     column,
     default=None,
     sep="\t",
-    time_col="datetime"
+    time_col="datetime",
+    model_dates=None,
+    method=None,
+    max_gap_hours=None,
 ):
     """
-    Load a time series from file or create a constant array.
+    Load a forcing time series, or create a constant one.
+
+    Two modes:
+
+    * model_dates given (time_params.start_date set in the yaml):
+      the file is read with its timestamps and interpolated onto the model
+      time axis, so the forcing is aligned in time for any dt and any start
+      date inside the record. The model window must lie inside the record.
+    * model_dates None (legacy): the values are returned row by row from
+      the first row of the file, i.e. the file must start at model t = 0
+      and have one row per dt.
 
     Parameters
     ----------
-    source : str or float
-        Filename or constant value.
+    source : str, float or None
+        File name (tab separated, with a datetime column) or constant value.
     length : int
-        Length of the output time series.
+        Number of model time steps.
     column : str
-        Column name in file to read.
+        Column to read.
     default : float, optional
-        Default constant value if source is None.
-    sep : str
-        File separator.
-    time_col : str
-        Name of datetime column.
+        Constant used when source is None.
+    model_dates : pandas.DatetimeIndex, optional
+        Date of each model step.
+    method : {"linear", "circular", "nearest", "previous"}, optional
+        Interpolation method. Default: "circular" for directions, "previous"
+        for month, "linear" otherwise.
+    max_gap_hours : float, optional
+        Warn when a model step falls in a data gap longer than this.
 
     Returns
     -------
-    np.ndarray
+    np.ndarray of length `length`
     """
-    if isinstance(source, str):
-        df = pd.read_csv(source, sep=sep, parse_dates=[time_col])
-        df.set_index(time_col, inplace=True)
-        series = df[column]
-        n_missing = int(series.isna().sum())
-        if n_missing > 0:
-            # Fill gaps in the forcing so that a single missing record does not
-            # turn the runup / transport (and from there the shoreline) into NaN.
-            # Linear interpolation in time inside gaps, nearest value at the ends.
-            series = series.astype(float).interpolate(method="time", limit_direction="both")
-            print(f"load_timeseries: filled {n_missing} missing value(s) in '{column}' ({source})")
-        return series.values
-
     if source is None:
         if default is None:
-            raise ValueError("source is None and no default provided")
-        return np.full(length, default)
+            raise ValueError(f"no source given for '{column}' and no default available")
+        return np.full(length, float(default))
 
-    return np.full(length, source)
+    if not isinstance(source, str):
+        return np.full(length, float(source))
+
+    df = pd.read_csv(source, sep=sep)
+    if time_col not in df.columns or column not in df.columns:
+        raise ValueError(f"{source}: expected columns '{time_col}' and '{column}', "
+                         f"found {list(df.columns)}")
+    idx = _to_utc_naive(pd.DatetimeIndex(pd.to_datetime(df[time_col], utc=True)))
+    series = pd.Series(df[column].astype(float).values, index=idx)
+
+    n_missing = int(series.isna().sum())
+    if n_missing > 0:
+        print(f"load_timeseries: {n_missing} missing value(s) in '{column}' ({source}) "
+              f"are bridged by interpolation")
+
+    # ---------------- legacy mode: row by row ----------------
+    if model_dates is None:
+        # gaps filled in place so that row k still corresponds to step k
+        values = series.interpolate(method="time", limit_direction="both").values
+        if len(values) < length:
+            raise ValueError(
+                f"{source} has {len(values)} records but the run needs {length} steps. "
+                f"Set time_params.start_date to align the forcing by date instead.")
+        return values[:length]
+
+    # ---------------- date-aligned mode ----------------
+    series = series.dropna().sort_index()
+    series = series[~series.index.duplicated(keep="first")]
+    if method is None:
+        method = ("circular" if column in CIRCULAR_COLUMNS
+                  else "previous" if column in STEP_COLUMNS else "linear")
+
+    t_data = series.index.values.astype("datetime64[s]").astype(np.int64).astype(float)
+    t_model = model_dates.values.astype("datetime64[s]").astype(np.int64).astype(float)
+    if t_model[0] < t_data[0] or t_model[-1] > t_data[-1]:
+        raise ValueError(
+            f"{source} covers {series.index[0]} to {series.index[-1]}, but the model "
+            f"runs from {model_dates[0]} to {model_dates[-1]}. Adjust start_date/end_date.")
+
+    v = series.values
+    if method == "linear":
+        out = np.interp(t_model, t_data, v)
+    elif method == "circular":
+        rad = np.radians(v)
+        s = np.interp(t_model, t_data, np.sin(rad))
+        c = np.interp(t_model, t_data, np.cos(rad))
+        out = np.degrees(np.arctan2(s, c)) % 360.0
+    elif method in ("previous", "nearest"):
+        if method == "previous":
+            j = np.searchsorted(t_data, t_model, side="right") - 1
+        else:
+            j = np.clip(np.searchsorted(t_data, t_model), 1, len(t_data) - 1)
+            j = np.where(t_model - t_data[j - 1] <= t_data[j] - t_model, j - 1, j)
+        out = v[np.clip(j, 0, len(v) - 1)]
+    else:
+        raise ValueError(f"unknown interpolation method '{method}'")
+
+    if max_gap_hours is not None:
+        gaps = np.diff(t_data) > max_gap_hours * 3600
+        if gaps.any():
+            k = np.searchsorted(t_data, t_model, side="right") - 1
+            k = np.clip(k, 0, len(gaps) - 1)
+            n_in_gap = int(gaps[k].sum())
+            if n_in_gap:
+                print(f"load_timeseries: {n_in_gap} model step(s) of '{column}' fall in "
+                      f"data gaps longer than {max_gap_hours} h")
+    return out
+
+
+def resolve_path(source, base_dirs):
+    """Return source unchanged if it is not a file name; otherwise the first existing path."""
+    if not isinstance(source, str):
+        return source
+    if os.path.isabs(source) or os.path.isfile(source):
+        return source
+    for d in base_dirs:
+        if d and os.path.isfile(os.path.join(d, source)):
+            return os.path.join(d, source)
+    raise FileNotFoundError(f"forcing file '{source}' not found (looked in: cwd, "
+                            f"{', '.join(d for d in base_dirs if d)})")
 
 
 def trapezoid_positive(y, x):
@@ -625,7 +757,8 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
                       srampnew, srampold, betas, betal,
                       rhov_df_spec1, rhov_dt_spec1, rhov_db_spec1,
                       rhov_df_spec2, rhov_dt_spec2, rhov_db_spec2,
-                      month=None):
+                      month=None, winter_decay_month=0.05, winter_decay_year=0.0,
+                      winter_months=(11, 12, 1, 2, 3), winter_decay_type='relative'):
     
     '''
     Vegetation growth function adapted from Nield and Baas, 2008 and DUBEVEG model (Keijsers et. al., 2016), for two species
@@ -634,6 +767,13 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
     If the vegetation update interval dt (vegdt) is one year, the annual Nield and Baas (2008) curves are used for
     species 1 instead of the monthly Ammophila curves, and the monthly growth multiplier is not applied (both species).
     The winter decay is kept: winter_decay_year is applied once at every yearly update, independent of the month.
+
+    Winter decay (set in the yaml, vegetation section):
+        winter_decay_month : reduction applied at each update in a winter month
+        winter_decay_year  : reduction applied at each yearly update (vegdt of one year)
+        winter_months      : months counted as winter
+        winter_decay_type  : 'relative' -> cover *= (1 - decay)   (fraction of what is there)
+                             'absolute' -> cover -= decay         (fixed amount of cover)
     '''
     
     # # define vertices values for both species
@@ -753,10 +893,26 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
 
     # reduction of vegetation coverage due to frosting and reduction in winter
     
-    winter_months = [11, 12, 1, 2, 3]
-    winter_decay_month = 0.01  # reduction measuerd of 10-20% per winter, so about 
-    winter_decay_year = 0.00   # yearly update: applied once per update, whatever the month (every year holds one winter).
-                               # Note: 5 winter months x 0.05 = 0.25 would exceed the annual growth peak (0.2)
+    # winter_months = [11, 12, 1, 2, 3]
+    # winter_decay_month = 0.01  # reduction measuerd of 10-20% per winter, so about 
+    # winter_decay_year = 0.00   # yearly update: applied once per update, whatever the month (every year holds one winter).
+    #                            # Note: 5 winter months x 0.05 = 0.25 would exceed the annual growth peak (0.2)
+    # if annual:
+    #     winter_decay = winter_decay_year
+    # elif month is not None and month in winter_months:
+    #     winter_decay = winter_decay_month
+    # else:
+    #     winter_decay = None
+
+    # if winter_decay is not None:
+    #     rhov_dfnew_spec1 = max(0, rhov_dfnew_spec1 - winter_decay)
+    #     rhov_dtnew_spec1 = max(0, rhov_dtnew_spec1 - winter_decay)
+    #     rhov_dbnew_spec1 = max(0, rhov_dbnew_spec1 - winter_decay)
+    #     rhov_dfnew_spec2 = max(0, rhov_dfnew_spec2 - winter_decay)
+    #     rhov_dtnew_spec2 = max(0, rhov_dtnew_spec2 - winter_decay)
+    #     rhov_dbnew_spec2 = max(0, rhov_dbnew_spec2 - winter_decay)
+            
+    # reduction of vegetation coverage in winter (frost); values from the yaml
     if annual:
         winter_decay = winter_decay_year
     elif month is not None and month in winter_months:
@@ -764,15 +920,25 @@ def vegNield_seasonal(dt, sold, snew, ylnew, ylold, ysnew, ysold,
     else:
         winter_decay = None
 
-    if winter_decay is not None:
-        rhov_dfnew_spec1 = max(0, rhov_dfnew_spec1 - winter_decay)
-        rhov_dtnew_spec1 = max(0, rhov_dtnew_spec1 - winter_decay)
-        rhov_dbnew_spec1 = max(0, rhov_dbnew_spec1 - winter_decay)
-        rhov_dfnew_spec2 = max(0, rhov_dfnew_spec2 - winter_decay)
-        rhov_dtnew_spec2 = max(0, rhov_dtnew_spec2 - winter_decay)
-        rhov_dbnew_spec2 = max(0, rhov_dbnew_spec2 - winter_decay)
-            
-    
+    if winter_decay:
+        if winter_decay_type == 'relative':
+            keep = 1.0 - winter_decay
+            rhov_dfnew_spec1 *= keep
+            rhov_dtnew_spec1 *= keep
+            rhov_dbnew_spec1 *= keep
+            rhov_dfnew_spec2 *= keep
+            rhov_dtnew_spec2 *= keep
+            rhov_dbnew_spec2 *= keep
+        elif winter_decay_type == 'absolute':
+            rhov_dfnew_spec1 = max(0, rhov_dfnew_spec1 - winter_decay)
+            rhov_dtnew_spec1 = max(0, rhov_dtnew_spec1 - winter_decay)
+            rhov_dbnew_spec1 = max(0, rhov_dbnew_spec1 - winter_decay)
+            rhov_dfnew_spec2 = max(0, rhov_dfnew_spec2 - winter_decay)
+            rhov_dtnew_spec2 = max(0, rhov_dtnew_spec2 - winter_decay)
+            rhov_dbnew_spec2 = max(0, rhov_dbnew_spec2 - winter_decay)
+        else:
+            raise ValueError(f"winter_decay_type must be 'relative' or 'absolute', not {winter_decay_type!r}")
+
     # Cap values between 0 and 1, and adjust species balance as before
     rhov_dfnew_spec1 = min(max(rhov_dfnew_spec1, 0.0), 1.0)
     rhov_dtnew_spec1 = min(max(rhov_dtnew_spec1, 0.0), 1.0)
@@ -1049,7 +1215,7 @@ def wind_veg_reduction(u_in, L_block,
     rhov1 : float
         Vegetation density (0–1) for species 1 (dune builder).
     Cd1 : float, optional
-        Drag coefficient for species 1 (default=0.01).
+        Drag coefficient for species 1 (default=0.03).
     rhov2 : float, optional
         Vegetation density (0–1) for species 2 (stabilizer).
         Default = 0 (absent).
@@ -1066,9 +1232,22 @@ def wind_veg_reduction(u_in, L_block,
     return u_out
 
 def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, wspeed, rhos, rhoa, d50, kappa, z, vegcount, awind, rhov_df, rhov_dt, rhov_db, 
-        rhov_df2, rhov_dt2, rhov_db2):
+        rhov_df2, rhov_dt2, rhov_db2,
+        alpha_ramp=2.2, beta_ramp=0.6, alpha_crest=1.5, beta_crest=0.2,
+        alpha_lee=1.2, beta_lee=0.8, Cd1=None, Cd2=None):
     """
     Calculate sediment deposition on dune in three blocks (ramp, crest, lee) based on wind shear velocity distribution.
+
+    Shear stress perturbation per block (convolution term + local slope term):
+        tau/tau0 = alpha * (I + beta * slope) + 1
+    alpha_* scales the amplitude of the bed-slope influence and beta_* is the
+    relative weight of the local slope term; both can be set in the yaml
+    (section wind_shear). Defaults are the values used so far.
+
+    Cd1, Cd2: drag coefficients of species 1 and 2 in the wind reduction by
+    vegetation (wind_veg_reduction), set in the yaml (section vegetation).
+    None keeps the values used so far: Cd1 = 0.12 and Cd2 = 0.01 with two
+    species (vegcount = 1), Cd1 = 0.03 with one species (vegcount = 0).
     """
 
     dx_ramp = abs(dune_x['ramp_toe']-dune_x['ramp_crest']) # find the distance between the dunetoe and the dune crest
@@ -1137,9 +1316,8 @@ def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, 
                  + (slope_crest/np.pi) * np.log((x_lee - x_crest_minus)/(x_lee - x_crest_plus))
              
          # coefficients α (scaling factor controls amplitude of bed slope gradient influence) and β (relative wheigth of local slope term) for each block
-        alpha_ramp, beta_ramp = 2.2, 0.6 #3, 0.8 #2, 0.8
-        alpha_crest, beta_crest = 1.5, 0.2
-        alpha_lee, beta_lee = 1.2, 0.8
+        # values come from the function arguments (yaml section wind_shear);
+        # defaults: ramp 2.2/0.6 (tested before: 3/0.8, 2/0.8), crest 1.5/0.2, lee 1.2/0.8
         
          # calculate tau over tau0 including convolution term + local slope term + 1 (background shear)
         tau_ramp  = max(alpha_ramp * (I_ramp + beta_ramp * slope_ramp) + 1, 0.1)
@@ -1164,22 +1342,25 @@ def deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, dt, tetaw, 
         
          # Apply sequentially to x- and y-components
         if vegcount == 0:
-            u10x_ramp  = wind_veg_reduction(u10x_ramp, dx_ramp, rhov_df)
-            u10x_crest = wind_veg_reduction(u10x_crest, dx_crest, rhov_dt)
-            u10x_lee   = wind_veg_reduction(u10x_lee, dx_lee, rhov_db)
+            cd1 = 0.03 if Cd1 is None else Cd1
+            u10x_ramp  = wind_veg_reduction(u10x_ramp, dx_ramp, rhov_df, Cd1=cd1)
+            u10x_crest = wind_veg_reduction(u10x_crest, dx_crest, rhov_dt, Cd1=cd1)
+            u10x_lee   = wind_veg_reduction(u10x_lee, dx_lee, rhov_db, Cd1=cd1)
         
-            u10y_ramp  = wind_veg_reduction(u10y, dx_ramp, rhov_df)
-            u10y_crest = wind_veg_reduction(u10y, dx_crest, rhov_dt)
-            u10y_lee   = wind_veg_reduction(u10y, dx_lee, rhov_db)
+            u10y_ramp  = wind_veg_reduction(u10y, dx_ramp, rhov_df, Cd1=cd1)
+            u10y_crest = wind_veg_reduction(u10y, dx_crest, rhov_dt, Cd1=cd1)
+            u10y_lee   = wind_veg_reduction(u10y, dx_lee, rhov_db, Cd1=cd1)
         
         elif vegcount == 1:
-            u10x_ramp  = wind_veg_reduction(u10x_ramp, dx_ramp, rhov_df, Cd1=0.12, rhov2=rhov_df2, Cd2=0.01)
-            u10x_crest = wind_veg_reduction(u10x_crest, dx_crest, rhov_dt, Cd1=0.12, rhov2=rhov_dt2, Cd2=0.01)
-            u10x_lee   = wind_veg_reduction(u10x_lee, dx_lee, rhov_db, Cd1=0.12, rhov2=rhov_db2, Cd2=0.01)
+            cd1 = 0.12 if Cd1 is None else Cd1
+            cd2 = 0.01 if Cd2 is None else Cd2
+            u10x_ramp  = wind_veg_reduction(u10x_ramp, dx_ramp, rhov_df, Cd1=cd1, rhov2=rhov_df2, Cd2=cd2)
+            u10x_crest = wind_veg_reduction(u10x_crest, dx_crest, rhov_dt, Cd1=cd1, rhov2=rhov_dt2, Cd2=cd2)
+            u10x_lee   = wind_veg_reduction(u10x_lee, dx_lee, rhov_db, Cd1=cd1, rhov2=rhov_db2, Cd2=cd2)
         
-            u10y_ramp  = wind_veg_reduction(u10y, dx_ramp, rhov_df, Cd1=0.12, rhov2=rhov_df2, Cd2=0.01)
-            u10y_crest = wind_veg_reduction(u10y, dx_crest, rhov_dt, Cd1=0.12, rhov2=rhov_dt2, Cd2=0.01)
-            u10y_lee   = wind_veg_reduction(u10y, dx_lee, rhov_db, Cd1=0.12, rhov2=rhov_db2, Cd2=0.01)
+            u10y_ramp  = wind_veg_reduction(u10y, dx_ramp, rhov_df, Cd1=cd1, rhov2=rhov_df2, Cd2=cd2)
+            u10y_crest = wind_veg_reduction(u10y, dx_crest, rhov_dt, Cd1=cd1, rhov2=rhov_dt2, Cd2=cd2)
+            u10y_lee   = wind_veg_reduction(u10y, dx_lee, rhov_db, Cd1=cd1, rhov2=rhov_db2, Cd2=cd2)
         
         
          # Compute umag after reduction
@@ -1850,7 +2031,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_z['ramp_toe_temp'] = dfoot    
             
             # check if ramp is in front of the dike or not:
-            elif (dune_x['ramp_crest'] > dune_x['seaward_crest']) or (dune_x['seaward_crest'] == dune_x['ramp_crest'] and dune_x['seaward_crest'] < ys_hs):  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
+            elif (dune_x['ramp_crest'] > dune_x['seaward_crest'] + 1e-2) or (abs(dune_x['seaward_crest'] - dune_x['ramp_crest']) <= 1e-2 and dune_x['seaward_crest'] < ys_hs):  # FIX: 1 cm tolerance, an eroded scarp leaves ramp_crest a few mm seaward of seaward_crest  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
                 
                 if dune_z['seaward_crest'] <= s_hs + dfoot or dune_x['ramp_toe'] < ys_hs: # there is no active dune on top of the dike, OR ramp toe has retreated to/behind the dike seaward toe (post-erosion scarp: ramp_crest==seaward_crest, dike face exposed, recovery needed): # there is no active dune on top of the dike, and everything is exposed
                     vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
@@ -2195,7 +2376,12 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     vrampnew = vrampnew + 0.5 * ((dune_x['ramp_toe'] - dune_x['ramp_crest']) * (dune_z['ramp_toe_temp'] - dune_z['ramp_crest'])
                                                  - (dune_x['ramp_toe_temp'] - dune_x['ramp_crest']) * (dune_z['ramp_toe'] - dune_z['ramp_crest']))
                 
-                if vrampnew < vrampmax: # check if the volume in the front of dune is below the maximum
+                # FIX: a ramp that is already full (ramp_crest at seaward_crest) cannot be solved for a
+                # new height: the solver bracket [ramp height, crest height] has zero width. Its volume
+                # can still come out a hair below vrampmax (toe a fraction of a mm off), so treat it as full.
+                # A full-height ramp with a step at the toe (toe_step) keeps its own handling below.
+                ramp_partial = (vrampnew < vrampmax) and (toe_step or dune_z['seaward_crest'] - dune_z['ramp_crest'] > 1e-9)
+                if ramp_partial: # check if the volume in the front of dune is below the maximum
                 
                     # def f_ramp(sramp_potential):
                     #     return ramp_volume(sramp_potential, dune_z['ramp_crest']-dfoot, dune_x['ramp_crest'], dune_x['ramp_toe'], betas, dfoot, substrate_x, substrate_z) - vrampnew
@@ -2240,7 +2426,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     ysprim_new_r = ysprim + (vextra / s)  # get the new crest position of the ramp 
                 
                 # update dune array with new ramp and toe position
-                if vrampnew < vrampmax:
+                if ramp_partial:
                     dune_x['ramp_toe'] = ys_new_r
                     dune_x['ramp_toe_temp'] = ys_new_r
                     dune_z['ramp_toe_temp'] = dfoot
