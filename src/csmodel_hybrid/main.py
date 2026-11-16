@@ -52,6 +52,7 @@ import sys
 import os
 from pathlib import Path
 from collections.abc import Mapping
+from collections import deque
 import numpy as np
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
@@ -289,7 +290,10 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     curr_valid = np.isfinite(z_curr_g)
     both_valid = init_valid & curr_valid
 
-    fig, ax = plt.subplots(figsize=(10, 4.8))
+    # Fixed figure size and axes position: every snapshot has the same pixel size
+    # and the axes sit at the same place, so GIF/MP4 frames line up.
+    fig, ax = plt.subplots(figsize=(10, 6.2))
+    fig.subplots_adjust(left=0.09, right=0.97, top=0.93, bottom=0.30)
     
     # Light sand body under the final profile
     ax.fill_between(xg,
@@ -747,17 +751,18 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
 
         # Wind arrow: skip during high-water events to avoid overlap with flow arrows.
         if wind_speed is not None and (twl is None or twl <= 5.0):
-            _xw0 = 500.0
-            _yw0 = 6.0
-            _wind_mag = 0.12 * x_fill_right
-            ax.quiver(
-                [_xw0], [_yw0], [-_wind_mag], [0.0],
-                angles="xy", scale_units="xy", scale=1,
-                width=0.0046, headwidth=6.2, headlength=7.8, headaxislength=6.8,
-                color="0.2", zorder=9,
+            # placed in axes coordinates, left of the BC box, so it is always inside the axes
+            _xw0, _xw1, _yw0 = 0.72, 0.60, 0.80
+            ax.annotate(
+                "", xy=(_xw1, _yw0), xytext=(_xw0, _yw0),
+                xycoords="axes fraction", textcoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>,head_width=0.35,head_length=0.7",
+                                lw=2.2, color="0.2"),
+                zorder=9,
             )
             ax.text(
-                _xw0 - 0.5 * _wind_mag, _yw0 + 0.65, r"$\vec{U}_{wind}$",
+                0.5 * (_xw0 + _xw1), _yw0 + 0.025, r"$\vec{U}_{wind}$",
+                transform=ax.transAxes,
                 ha="center", va="bottom", fontsize=11, color="0.2", zorder=10,
             )
 
@@ -839,16 +844,14 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     _x_left = 0.0 if x_lim_left is None else float(x_lim_left)
     _y_bottom = 0.0 if y_lim_bottom is None else float(y_lim_bottom)
 
-    ax.set_xlim(left=_x_left, right=x_fill_right)
+    ax.set_xlim(left=_x_left, right=(x_lim_right if x_lim_right is not None else x_fill_right))
     if y_lim_top is not None:
         ax.set_ylim(bottom=_y_bottom, top=y_lim_top)
     else:
         ax.set_ylim(bottom=_y_bottom)
 
-    fig.tight_layout()
-
     plot_filename = f"{output_base}_{timestep}.png"
-    fig.savefig(plot_filename, dpi=150, bbox_inches='tight')
+    fig.savefig(plot_filename, dpi=150)   # no bbox_inches='tight': it changes the canvas per frame
     plt.close(fig)
 
     print(f"Profile snapshot saved to {plot_filename}")
@@ -914,7 +917,13 @@ def _create_evolution_movie(frame_paths, output_path, fps=2):
     for path in frame_paths:
         if os.path.isfile(path):
             with Image.open(path) as img:
-                images.append(img.copy())
+                frame = img.convert("RGB")
+            if images and frame.size != images[0].size:
+                # pad/crop onto a white canvas of the first frame's size
+                canvas = Image.new("RGB", images[0].size, "white")
+                canvas.paste(frame, (0, 0))
+                frame = canvas
+            images.append(frame)
 
     if not images:
         print("Warning: no snapshot frames found; evolution movie not created.")
@@ -926,7 +935,8 @@ def _create_evolution_movie(frame_paths, output_path, fps=2):
         save_all=True,
         append_images=images[1:],
         duration=duration_ms,
-        loop=0
+        loop=0,
+        disposal=2,
     )
     print(f"Evolution movie saved to {output_path}")
 
@@ -1129,37 +1139,58 @@ def run_model(config_source, check_mass_conservation=False,
 
     p = SimpleNamespace(**params)
 
-    # load boundary conditions
-    time_length_dt = int(p.time_length_hours * 3600 / p.dt)
+    # ------------------------------------------------------------------
+    # Model time axis and boundary conditions
+    # ------------------------------------------------------------------
+    # time_params:
+    #   start_date: model t = 0 (forcing is aligned by date)      [optional]
+    #   end_date:   last simulated date (else time_length_hours)   [optional]
+    #   dt:         time step (s), independent of the forcing interval
+    #   forcing_dir: folder for relative forcing paths             [optional]
+    # Without start_date the legacy behaviour is kept: the files are read
+    # row by row from their first row (file must start at t = 0, one row per dt).
+    start_date = getattr(p, 'start_date', None)
+    end_date = getattr(p, 'end_date', None)
+    forcing_dirs = [getattr(p, 'forcing_dir', None)]
+    if isinstance(config_source, (str, os.PathLike, Path)):
+        forcing_dirs.append(os.path.dirname(os.path.abspath(os.fspath(config_source))))
 
-    wave_time_series = load_timeseries(
-        p.wave_height, time_length_dt, column="wave_height"
-    )
+    if start_date is not None:
+        time_length_dt, model_dates = build_model_time(
+            start_date, p.dt, end_date=end_date,
+            time_length_hours=getattr(p, 'time_length_hours', None))
+    else:
+        if end_date is not None:
+            raise ValueError("time_params.end_date requires time_params.start_date")
+        time_length_dt = int(p.time_length_hours * 3600 / p.dt)
+        model_dates = None
+    if time_length_dt < 1:
+        raise ValueError("the simulation has no time steps; check the run window and dt")
+    p.time_length_hours = time_length_dt * p.dt / 3600.0
 
-    wave_period_time_series = load_timeseries(
-        p.wave_period, time_length_dt, column="wave_period"
-    )
+    def _forcing(name, column, default=None):
+        src = resolve_path(getattr(p, name, None), forcing_dirs)
+        return load_timeseries(src, time_length_dt, column=column, default=default,
+                               model_dates=model_dates,
+                               max_gap_hours=getattr(p, 'max_gap_hours', 6.0))
 
-    wave_dir_time_series = load_timeseries(
-        p.wave_direction, time_length_dt, column="wave_direction"
-    )
+    wave_time_series = _forcing('wave_height', 'wave_height')
+    wave_period_time_series = _forcing('wave_period', 'wave_period')
+    wave_dir_time_series = _forcing('wave_direction', 'wave_direction')
+    swl_time_series = _forcing('swl', 'swl')
+    wind_speed_time_series = _forcing('wind_speed', 'wind_speed')
+    wind_dir_time_series = _forcing('wind_direction', 'wind_direction')
+    if getattr(p, 'month', None) is None and model_dates is not None:
+        month_timeseries = np.asarray(model_dates.month, dtype=int)  # from the calendar
+    else:
+        month_timeseries = np.rint(_forcing('month', 'month', default=7)).astype(int)
 
-    swl_time_series = load_timeseries(
-        p.swl, time_length_dt, column="swl"
-    )
-
-    wind_speed_time_series = load_timeseries(
-        p.wind_speed, time_length_dt, column="wind_speed"
-    )
-
-    wind_dir_time_series = load_timeseries(
-        p.wind_direction, time_length_dt, column="wind_direction"
-    )
-
-    month_timeseries = load_timeseries(
-        p.month, time_length_dt, column="month", default=7
-    )
-
+    if model_dates is not None:
+        log(f"Run window: {model_dates[0]} to {model_dates[-1] + pd.Timedelta(seconds=p.dt)} UTC | "
+            f"dt = {p.dt:.0f} s | {time_length_dt} steps ({p.time_length_hours/24:.1f} days)")
+    else:
+        log(f"Run length: {p.time_length_hours:.1f} h | dt = {p.dt:.0f} s | {time_length_dt} steps "
+            f"(no start_date: forcing read row by row)")
 
     # Allocate memory
     qbar = 0#np.zeros(time_length_hours)
@@ -1261,7 +1292,9 @@ def run_model(config_source, check_mass_conservation=False,
         'runup': [],
         'total_water_level': [],
         'eroded_volume': [],
-        'overwash_volume': [],
+        'overwash_volume': [],       # overwash over the (attached) dune crest to its lee
+        'lee_redistribution': [],    # crest-to-lee transport within a dune detached behind the dike
+        'dune_detached': [],         # True when the dune is behind and not higher than the dike crest
         'dune_height': [dune_z['seaward_crest'] - dune_z['ramp_toe']],
         'dune_foot': [dune_x['ramp_toe']],
         'rhov_df': [],
@@ -1281,7 +1314,11 @@ def run_model(config_source, check_mass_conservation=False,
         'wave_direction': wave_dir_time_series,
         'wind_speed': wind_speed_time_series,
         'wind_direction': wind_dir_time_series,
-        'time': np.arange(0, time_length_dt*p.dt, p.dt),
+        'time': np.arange(time_length_dt) * p.dt,
+        # date of the forcing used in each step (None without start_date); the
+        # state stored after step k corresponds to datetime[k] + dt
+        'datetime': None if model_dates is None else model_dates.values,
+        'start_date': None if model_dates is None else str(model_dates[0]),
         # Conservation time-series
         'conservation': {
             'dune_error': [],
@@ -1312,6 +1349,8 @@ def run_model(config_source, check_mass_conservation=False,
     ys_veg = p.ys # allocate value for the vegetation growth calc
     yl_veg = p.yl # allocate value for the vegetation growth calc
     sramp_veg = p.sramp # allocate value for the vegetation growth calc
+    s_veg = dune_z['seaward_crest'] # allocate value for the vegetation growth calc
+    sramp_veg = dune_z['ramp_crest'] # allocate value for the vegetation growth calc
 
     # Initialize varying parameters
     # Calculate initial vbeach from shoreline position (yg) instead of using config value
@@ -1319,6 +1358,36 @@ def run_model(config_source, check_mass_conservation=False,
     vbeach = ((p.yg - p.ys) - p.bl) / p.al
     vramp = p.vramp
     rhov_df = p.rhov_df
+    # shear-stress convolution coefficients per dune block (yaml section wind_shear)
+    _shear_defaults = {'alpha_ramp': 2.2, 'beta_ramp': 0.6, 'alpha_crest': 1.5,
+                       'beta_crest': 0.2, 'alpha_lee': 1.2, 'beta_lee': 0.8}
+    _shear_coeffs = {k: float(getattr(p, k, v)) for k, v in _shear_defaults.items()}
+    log("Shear convolution (alpha, beta): ramp {alpha_ramp:g}, {beta_ramp:g} | "
+        "crest {alpha_crest:g}, {beta_crest:g} | lee {alpha_lee:g}, {beta_lee:g}".format(**_shear_coeffs))
+    # drag coefficients for the wind reduction by vegetation (vegetation section);
+    # None keeps the built-in values (0.12 / 0.01 with two species, 0.03 with one)
+    _veg_cd1 = getattr(p, 'Cd1', None)
+    _veg_cd2 = getattr(p, 'Cd2', None)
+    _veg_cd1 = None if _veg_cd1 is None else float(_veg_cd1)
+    _veg_cd2 = None if _veg_cd2 is None else float(_veg_cd2)
+    if p.vegcount == 1:
+        _cd1_used = 0.12 if _veg_cd1 is None else _veg_cd1
+        _cd2_used = 0.01 if _veg_cd2 is None else _veg_cd2
+        log(f"Vegetation drag: Cd1 = {_cd1_used:g}, Cd2 = {_cd2_used:g}")
+    else:
+        log(f"Vegetation drag: Cd1 = {0.03 if _veg_cd1 is None else _veg_cd1:g} (one species)")
+    # winter decay of the vegetation cover (vegetation section of the yaml)
+    _wd_month = float(getattr(p, 'winter_decay_month', 0.05))
+    _wd_year = float(getattr(p, 'winter_decay_year', 0.0))
+    _wd_months = tuple(int(mo) for mo in getattr(p, 'winter_months', (11, 12, 1, 2, 3)))
+    _wd_type = str(getattr(p, 'winter_decay_type', 'relative')).lower()
+    if _wd_type not in ('relative', 'absolute'):
+        raise ValueError(f"winter_decay_type must be 'relative' or 'absolute', not {_wd_type!r}")
+    if not (0.0 <= _wd_month <= 1.0 and 0.0 <= _wd_year <= 1.0):
+        raise ValueError("winter_decay_month and winter_decay_year must be between 0 and 1")
+    if p.vegcount == 1:
+        log(f"Vegetation winter decay: {_wd_type}, {_wd_month:g} per winter month "
+            f"(months {list(_wd_months)}), {_wd_year:g} per yearly update")
     rhov_dt = p.rhov_dt
     rhov_db = p.rhov_db
     rhov_df2 = p.rhov_df2
@@ -1326,7 +1395,7 @@ def run_model(config_source, check_mass_conservation=False,
     rhov_db2 = p.rhov_db2
     volbar = p.volbar
     deltavall = 0
-
+    
     # Calculate initial volumes for conservation tracking
     initial_volumes = calculate_compartment_volumes(
         dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot
@@ -1391,6 +1460,25 @@ def run_model(config_source, check_mass_conservation=False,
         _plot_x_max = dune_x['shoreline'] + 0.2 * (dune_x['shoreline'] - dune_x['ramp_toe'])
         _plot_y_min = 0.0
         _plot_x_min = 0.0
+
+        # Optional fixed limits from the yaml (output: plot_x_min, plot_x_max,
+        # plot_z_min, plot_z_max). Function arguments take precedence.
+        _yaml_lims = {
+            'manual_plot_x_lim_left': output_config.get('plot_x_min'),
+            'manual_plot_x_lim_right': output_config.get('plot_x_max'),
+            'manual_plot_y_lim_bottom': output_config.get('plot_z_min'),
+            'manual_plot_y_lim_top': output_config.get('plot_z_max'),
+        }
+        if any(v is not None for v in _yaml_lims.values()):
+            manual_plot_limits = True
+            if manual_plot_x_lim_left is None:
+                manual_plot_x_lim_left = _yaml_lims['manual_plot_x_lim_left']
+            if manual_plot_x_lim_right is None:
+                manual_plot_x_lim_right = _yaml_lims['manual_plot_x_lim_right']
+            if manual_plot_y_lim_bottom is None:
+                manual_plot_y_lim_bottom = _yaml_lims['manual_plot_y_lim_bottom']
+            if manual_plot_y_lim_top is None:
+                manual_plot_y_lim_top = _yaml_lims['manual_plot_y_lim_top']
 
         if manual_plot_limits:
             if manual_plot_y_lim_top is not None:
@@ -1463,7 +1551,8 @@ def run_model(config_source, check_mass_conservation=False,
     # START SIMULATION
     ############################################################################
 
-    for i in range(len(wave_time_series)):
+    #for i in range(len(wave_time_series)):
+    for i in range(time_length_dt):
 
         month_i = month_timeseries[i]
         ### update counter for vegetation
@@ -1520,7 +1609,11 @@ def run_model(config_source, check_mass_conservation=False,
         # calculate approximate runup
         
         LO = 1.5613 * (0.95 * tp) ** 2
-        slope_foreshore = dune_z['ramp_toe']/(dune_x['shoreline']- dune_x['ramp_toe'])
+        if (dune_x['shoreline']- dune_x['ramp_toe']) > 30:
+            slope_foreshore = dune_z['ramp_toe']/(dune_x['shoreline']- dune_x['ramp_toe'])
+        else:
+            slope_foreshore = dune_z['ramp_toe']/(30)
+
         r = (0.158/0.03)*slope_foreshore*np.sqrt(h0 * LO) #we divide by an actual slope and recalculate based on the slope we have so to vary potential dissipation with X
         X = 2 * vbeach / p.dfoot * (1 - swl / p.dfoot)
 
@@ -1535,7 +1628,7 @@ def run_model(config_source, check_mass_conservation=False,
         runup_time_series[i] = r
         X_time_series[i] = X
         
-        aover = 3.0
+        aover = getattr(p, 'aover', 3.0)
         alfa = 0.0
         # calculate potential erosion
 
@@ -1648,7 +1741,8 @@ def run_model(config_source, check_mass_conservation=False,
         qs_ramp, qs_crest, qs_lee = deposition_dune(dune_x, dune_z, substrate_x, substrate_z, qwnet, p.dt, tetaw, wspeed, p.rhos, p.rhoa, p.d50, p.kappa, p.z, p.vegcount, p.awind, rhov_df=rhov_df, rhov_dt=rhov_dt, rhov_db=rhov_db, 
             rhov_df2=rhov_df2 if p.vegcount == 1 else 0, 
             rhov_dt2=rhov_dt2 if p.vegcount == 1 else 0, 
-            rhov_db2=rhov_db2 if p.vegcount == 1 else 0)
+            rhov_db2=rhov_db2 if p.vegcount == 1 else 0,
+            **_shear_coeffs, Cd1=_veg_cd1, Cd2=_veg_cd2)
 
         ######## NOURISHMENT AND SUBTIDAL EVOLUTION ########
         
@@ -1661,6 +1755,10 @@ def run_model(config_source, check_mass_conservation=False,
         if p.vanr > 0:
             vnourd[i], vnourb[i], vnourbar[i], IV = nour(i, IV, volat, volad, volab, volrb, p.vanr)
             
+        # make qbar=0 if the shoreline is already touching the substrate, meaning no sediment is actually transported from the beach to the subtidal
+        if (dune_x['shoreline'] - substrate_x[4])<1:
+            qbar = 0
+        
         # Calculate bar evolution
         volbar, barnour[i] = bar(volbar, qbar, p.dt, vnourbar[i], barnour[i], qnour)
         
@@ -1671,12 +1769,21 @@ def run_model(config_source, check_mass_conservation=False,
 
             
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
-        dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall)
+        # Dune detached behind the dike (state at the start of the step): the dune lies
+        # landward of the dike crest AND is not higher than it, so the dike is the
+        # barrier being overtopped. Crest-to-lee transport is then a redistribution of
+        # the detached dune, not overwash. Same condition morpho_update uses to switch
+        # to the sheltered case (no more erosion to the beach).
+        dune_detached = (dune_x['ramp_crest'] <= substrate_x[2]
+                         and dune_z['seaward_crest'] <= substrate_z[2] + 1e-6)
+        dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall, lee_transfer=getattr(p, 'lee_transfer', 0.0))
 
         ######## VEGETATION GROWTH UPDATE #########
             # update vegetation parameters
         if p.vegcount == 1 and vegupdate == 1:
-            rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2 = vegNield_seasonal(p.vegdt,s_veg,dune_z['seaward_crest'], dune_x['lee_foot'], yl_veg, dune_x['ramp_toe'], ys_veg, dune_z['ramp_crest'], sramp_veg, p.betas, p.betal, rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2, month_i)
+            rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2 = vegNield_seasonal(p.vegdt,s_veg,dune_z['seaward_crest'], dune_x['lee_foot'], yl_veg, dune_x['ramp_toe'], ys_veg, dune_z['ramp_crest'], sramp_veg, p.betas, p.betal, rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2, month_i,
+                winter_decay_month=_wd_month, winter_decay_year=_wd_year,
+                winter_months=_wd_months, winter_decay_type=_wd_type)
             vegupdate = 0
             s_veg = dune_z['seaward_crest']
             ys_veg = dune_x['ramp_toe']
@@ -1686,6 +1793,32 @@ def run_model(config_source, check_mass_conservation=False,
             rhov_df, rhov_dt, rhov_db = veg(ys, ysnew, yl, ylnew, sramp, srampnew, betas, betal, s, snew, vegdt,rhov_df,rhov_dt,rhov_db)
             vegupdate = 0
 
+        ######## VEGETATION GROWTH UPDATE #########
+            # update vegetation parameters
+        # if p.vegcount == 1 and vegupdate == 1:
+        #     dh_df_m, dh_dt_m, dh_db_m = monthly_burial(
+        #         s_veg, dune_z['seaward_crest'], yl_veg, dune_x['lee_foot'],
+        #         ys_veg, dune_x['ramp_toe'], sramp_veg, dune_z['ramp_crest'],
+        #         p.betas, p.betal)
+        #     burial_buf_df.append(dh_df_m)
+        #     burial_buf_dt.append(dh_dt_m)
+        #     burial_buf_db.append(dh_db_m)
+        #     ann_scale = YEAR_S / (len(burial_buf_df) * p.vegdt)  # 12 x 30 d -> 365 d
+        #     rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2 = vegNield_seasonal_annual(
+        #         p.vegdt,
+        #         sum(burial_buf_df) * ann_scale,
+        #         sum(burial_buf_dt) * ann_scale,
+        #         sum(burial_buf_db) * ann_scale,
+        #         rhov_df, rhov_dt, rhov_db, rhov_df2, rhov_dt2, rhov_db2,
+        #         month=month_i, apply_winter_decay=veg_winter_decay)
+        #     vegupdate = 0
+        #     s_veg = dune_z['seaward_crest']
+        #     ys_veg = dune_x['ramp_toe']
+        #     yl_veg = dune_x['lee_foot']
+        #     sramp_veg = dune_z['ramp_crest']
+        # elif p.vegcount == 0 and vegupdate == 1:
+        #     rhov_df, rhov_dt, rhov_db = veg(ys, ysnew, yl, ylnew, sramp, srampnew, betas, betal, s, snew, vegdt,rhov_df,rhov_dt,rhov_db)
+        #     vegupdate = 0
         
         # update values for next iteration
         vramp = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['ramp_crest'], dune_x['ramp_toe'])
@@ -1694,7 +1827,7 @@ def run_model(config_source, check_mass_conservation=False,
         dune_foot_time_series[i] = dune_x['ramp_toe']
         total_water_level_time_series[i] = total_water_level
         eroded_volume_time_series[i] = deltavramp_ero #erod_ramp
-        overwash_volume_time_series[i] = erod_overwash
+        overwash_volume_time_series[i] = 0.0 if dune_detached else erod_overwash
                 
         # Calculate beach volume after morpho_update, but before the shoreline movement (so to not account the volume created by the moving dune)
         vbeach_phantom = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
@@ -1706,7 +1839,9 @@ def run_model(config_source, check_mass_conservation=False,
         vbeachtotmin = dune_x['ramp_toe'] * (p.dclos + p.dfoot) + 0.5 * p.dfoot**2 / p.betaf + p.dfoot / p.betaf * p.dclos
 
         # Calculate new shoreline coordinate
-        dune_x['shoreline'] = dune_x['ramp_toe'] + (p.al * (vbeachtotnew - dune_x['ramp_toe'] * (p.dfoot + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
+        if not coupling_mode:
+        #if output_config == {}:
+            dune_x['shoreline'] = dune_x['ramp_toe'] + (p.al * (vbeachtotnew - dune_x['ramp_toe'] * (p.dfoot + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
         
         # Calculate final beach volume for output
         vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
@@ -1764,7 +1899,9 @@ def run_model(config_source, check_mass_conservation=False,
         results['runup'].append(r)
         results['total_water_level'].append(total_water_level)
         results['eroded_volume'].append(deltavramp_ero)
-        results['overwash_volume'].append(erod_overwash)
+        results['overwash_volume'].append(0.0 if dune_detached else erod_overwash)
+        results['lee_redistribution'].append(erod_overwash if dune_detached else 0.0)
+        results['dune_detached'].append(bool(dune_detached))
         results['dune_height'].append(dune_z['seaward_crest'] - dune_z['ramp_toe'])
         results['dune_foot'].append(dune_x['ramp_toe'])
         results['rhov_db'].append(rhov_db)
@@ -1783,7 +1920,8 @@ def run_model(config_source, check_mass_conservation=False,
 
         ## print progress
         if i % 1000 == 0:
-            log(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
+            #log(f"Progress: {100*i/len(wave_time_series):.1f}% ({i} of {len(wave_time_series)} time steps)")
+            log(f"Progress: {100*i/time_length_dt:.1f}% ({i} of {time_length_dt} time steps)")
 
         ## save profile evolution snapshot (if requested)
         if plot_evolution and save_outputs:
