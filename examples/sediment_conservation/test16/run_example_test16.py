@@ -38,10 +38,10 @@ results = run_model(
 
 ################### LOAD MODEL OUTPUT #################
 
-output_filename = 'cs_model_test16.pkl'
+#output_filename = 'cs_model_test16.pkl'
 
-with open(output_filename, 'rb') as f:
-    results = pickle.load(f)
+#with open(output_filename, 'rb') as f:
+#    results = pickle.load(f)
 
 ################## PROCESS DATA ####################
 

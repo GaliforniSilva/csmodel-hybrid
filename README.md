@@ -1,4 +1,6 @@
-# CS-hybrid
+# CS-Hybrid
+
+Version 1.0
 
 This repository contains an extended **1D version of the CS Model** (Hallin et al., 2019), adapted to represent **vegetation dynamics** and **hard coastal structures** for **hybrid dune–dike systems**.
 
@@ -18,8 +20,11 @@ This framework is intended for research applications at **annual to centennial t
 - **Filipe Galiforni Silva** (TU Delft)
 - **Ad Reniers** (TU Delft)
 - **Sierd de Vries** (TU Delft)
-- **Floris van Rees** (Deltares)
+- **Floris van Rees** (Deltares/NIOZ)
 - **Caroline Hallin** (Lund University)
+- **Bas Huisman** (Deltares)
+- **Maaike Maarse** (Deltares)
+- **Sebastian Dan** (Flanders Hydraulics)
 
 TU Delft, 2026
 
@@ -95,7 +100,36 @@ This module provides mass conservation analysis for model simulations. It checks
 - Conda yaml available.
 
 
-## Quick Start
+## Installation
+
+The package can be installed directly with `pip`, which makes it importable from any Python environment without path manipulation:
+
+```bash
+# Editable install (recommended for development / coupling with other models)
+pip install -e /path/to/csmodel-hybrid
+
+# Or install from within the repository root
+cd /path/to/csmodel-hybrid
+pip install -e .
+```
+
+Once installed you can import the model anywhere:
+
+```python
+from cs_model import run_model
+
+results = run_model("config.yaml")
+```
+
+Alternatively, install into a conda environment using the provided `environment.yml`:
+
+```bash
+conda env create -f environment.yml
+conda activate csmodel-hybrid
+pip install -e .
+```
+
+
 
 ##### Running a Simulation with a YAML Config File
 
@@ -107,6 +141,16 @@ Example YAML files:
 - `examples/oosteroever/config_vegetation.yaml`
 
 ###### Run the simulation
+
+After installing the package (see **Installation** above), import and run from anywhere:
+
+```python
+from cs_model import run_model
+
+results = run_model("config_vegetation.yaml")
+```
+
+Or run an example script from its directory:
 
 1. On a terminal, change directory to the desired example (katwijk or oosteroever):
 
@@ -123,17 +167,14 @@ python run_example_katwijk.py
 python run_example_oosteroever.py
 ```
 
-You can also run directly from Python and control runtime flags:
-
-```python
-from cs_model.main import run_model
-
-results = run_model("config_vegetation.yaml")
-```
-
 ### `run_model(...)` flags (runtime options)
 
-`run_model` takes a YAML config path plus optional keyword flags:
+`run_model` accepts either:
+
+- a YAML config path (`str` or `Path`), or
+- an in-memory configuration dictionary (`dict`) with the same structure as the YAML.
+
+plus optional keyword flags:
 
 - `check_mass_conservation=False`  
   Runs end-of-simulation sediment conservation diagnostics and writes a text report.
@@ -162,7 +203,13 @@ The output basename is taken from the YAML key:
 ```yaml
 output:
   filename: cs_model_oosteroever.pkl
+  coupling: 0
 ```
+
+- `output.filename`  
+  Default pickle output path when saving is enabled.
+- `output.coupling`  
+  When set to `1`/`true`, enables coupling mode: file outputs are disabled, general terminal printing is suppressed, and `run_model(...)` still returns the full in-memory `results` dictionary.
 
 For this example, the model can produce:
 
@@ -183,6 +230,16 @@ For this example, the model can produce:
 
 ```python
 run_model("config.yaml")
+```
+
+or from an in-memory dictionary:
+
+```python
+config = {
+    "time": {"time_length_hours": 24, "dt": 600},
+    # ... same sections/keys as YAML
+}
+run_model(config)
 ```
 
 2. Conservation-focused run:
@@ -267,7 +324,7 @@ A run is marked as conserved when **either** criterion is met.
 ### 4) Running with conservation enabled
 
 ```python
-from cs_model.main import run_model
+from cs_model import run_model
 
 results = run_model(
     "config.yaml",
@@ -289,5 +346,3 @@ Hallin, C., Larson, M., & Hanson, H. (2019).
 *Simulating beach and dune evolution at decadal to centennial scale under rising sea levels.*  
 PLoS ONE, 14(4), e0215651.  
 https://doi.org/10.1371/journal.pone.0215651
-
-
