@@ -113,6 +113,93 @@ def _config_flag(value):
     return bool(value)
 
 
+def _optional_float(value):
+    """
+    Convert an optional numeric config value to float. None, an empty string
+    or 'none'/'null'/'auto' (any case) mean "not given" and return None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value.strip().lower() in {"", "none", "null", "auto"}:
+            return None
+    return float(value)
+
+
+def _initial_user_berm(x_b, z_b, dune_x, dune_z, substrate_x, substrate_z, m_face,
+                       face_x3, face_z3, p, w_face_min, w_face_max, log):
+    """
+    Check a user-defined berm point (x_b, z_b) against the initial profile and
+    return (x_berm, vbeach_0, vbeach_x_0) for the berm option.
+
+    The berm option knows two states, and the user berm must fit one of them:
+      * toe on the flat (z_b == dfoot, x_b >= ys): flat at the berm level from
+        the dune toe to the berm point, beach face from the berm point to the
+        shoreline.
+      * toe on the beach slope (z_b > dfoot, x_b < ys): the berm point lies
+        under the dune; the beach base runs from the berm point down through
+        the dune toe to the shoreline. Erosion first moves the toe up that
+        slope to the berm point.
+    Any other combination (e.g. a berm seaward of the toe but lower or higher
+    than the toe) cannot be represented and raises ValueError.
+    """
+    xt, zt = float(dune_x['ramp_toe']), float(dune_z['ramp_toe'])
+    x_sh = float(dune_x['shoreline'])
+    tol = 1e-9
+    if not (x_b < x_sh):
+        raise ValueError(f"x_berm ({x_b:g}) must lie landward of the shoreline yg ({x_sh:g})")
+    if z_b <= 0.0:
+        raise ValueError(f"z_berm ({z_b:g}) must be above mean sea level (0 in the model datum)")
+    if z_b >= face_z3 - 0.05:
+        raise ValueError(f"z_berm ({z_b:g}) must stay below the dike crest ({face_z3:g})")
+
+    if abs(z_b - zt) <= 1e-6:
+        # ---- toe on the flat: berm at the toe level, seaward of (or at) the toe
+        if x_b < xt - tol:
+            log(f"Note: x_berm ({x_b:g}) is landward of the dune toe ys ({xt:g}) at the toe level; "
+                f"the berm point starts at the toe")
+        x_b = max(x_b, xt)
+        w_face = x_sh - x_b
+        if w_face <= p.bl:
+            raise ValueError(f"beach face from the berm point to the shoreline ({w_face:g} m) must be wider "
+                             f"than bl ({p.bl:g} m): move x_berm landward or yg seaward")
+        vbeach_0 = (x_b - xt) * z_b + (w_face - p.bl) / p.al
+        vbeach_x_0 = 0.5 * (x_b - xt) * z_b + (w_face - p.bl) / p.al
+        log(f"User berm point: x = {x_b:g} m, z = {z_b:g} m (flat {x_b - xt:g} m wide in front of the dune toe, "
+            f"beach face {w_face:g} m, slope {z_b / w_face:.4f})")
+        return float(x_b), vbeach_0, vbeach_x_0
+
+    if z_b > zt and x_b < xt - tol:
+        # ---- toe on the beach slope: berm point covered by the dune
+        x4_b = face_x3 + (face_z3 - z_b) / m_face          # dike face at the berm level
+        if x_b <= x4_b + tol:
+            raise ValueError(f"berm point ({x_b:g}, {z_b:g}) lies inside the dike (dike face at x = {x4_b:g} "
+                             f"for that level)")
+        # the dune surface must cover the berm point
+        keys = [k for k in dune_x if k not in ('shoreline', 'berm')]
+        xs = np.array([dune_x[k] for k in keys], dtype=float)
+        zs = np.array([dune_z[k] for k in keys], dtype=float)
+        order = np.argsort(xs, kind='stable')
+        z_surf = float(np.interp(x_b, xs[order], zs[order]))
+        if z_surf < z_b - 1e-6:
+            raise ValueError(f"berm point ({x_b:g}, {z_b:g}) is landward of the dune toe but above the dune "
+                             f"surface there ({z_surf:g} m)")
+        w = x_sh - xt
+        if w <= p.bl:
+            raise ValueError(f"beach width from the dune toe to the shoreline ({w:g} m) must be wider than bl ({p.bl:g} m)")
+        al_eff = p.al * z_b / zt                           # beach thickness scales with the toe height
+        vbeach_0 = (w - p.bl) / al_eff
+        log(f"User berm point: x = {x_b:g} m, z = {z_b:g} m, under the dune (toe on the beach slope at "
+            f"{zt:g} m; slope berm -> toe {(z_b - zt) / (xt - x_b):.4f})")
+        return float(x_b), vbeach_0, vbeach_0
+
+    raise ValueError(
+        f"berm point ({x_b:g}, {z_b:g}) does not fit the initial dune toe ({xt:g}, {zt:g}). With the berm "
+        f"option the berm crest is the highest toe level: use z_berm = dfoot with x_berm >= ys (flat in front "
+        f"of the toe), or z_berm > dfoot with x_berm < ys (berm under the dune, toe on the beach slope). "
+        f"Leave both out to start with the berm at the dune toe.")
+
+
 def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                            substrate_x, substrate_z, output_base, timestep,
                            progress_pct, bc_info=None, vegetation_info=None,
@@ -187,7 +274,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
     _profile_order = [
         'back_ref', 'lee_foot', 'lee_crest', 'crest_temp',
         'seaward_crest', 'ramp_dike_temp', 'ramp_crest',
-        'ramp_toe_temp', 'ramp_toe', 'shoreline'
+        'ramp_toe_temp', 'ramp_toe', 'berm', 'shoreline'
     ]
 
     def _ordered_profile_points(dune_x, dune_z, start_key=None):
@@ -632,10 +719,12 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
             float(x_curr_fill[-1]) if x_curr_fill.size > 0 else xg_end,
         )
     )
+    # Mean sea level of this snapshot (0.0 unless sea-level rise moved it; passed through bc_info['msl'])
+    _msl = float(bc_info.get('msl', 0.0)) if bc_info is not None else 0.0
     z_curr_for_sea = np.where(
         np.isfinite(z_curr_fill_g),
         z_curr_fill_g,
-        np.where(xg > _x_curr_shore, 0.0, z_sub_g),
+        np.where(xg > _x_curr_shore, _msl, z_sub_g),
     )
 
     # Compute seaward extent of the sea fill (used for xlim regardless of bc_info)
@@ -661,7 +750,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
         # Extended profile grid to include the seaward visual margin
         _xfill = np.concatenate([xg, [x_fill_right]])
         #_zfill = np.concatenate([z_curr_g, [0.0]])
-        _zfill = np.concatenate([z_curr_for_sea, [0.0]])
+        _zfill = np.concatenate([z_curr_for_sea, [_msl]])
 
         def _find_touch_x(xarr, zarr, level):
             """Return the seaward-most x where the profile first rises to *level*."""
@@ -685,7 +774,7 @@ def _save_profile_snapshot(dune_x_init, dune_z_init, dune_x_curr, dune_z_curr,
                 _z_back = dune_z_curr.get('back_ref',
                                           z_curr_for_sea[0] if len(z_curr_for_sea) > 0 else 0.0)
                 _xfill_ow = np.concatenate([[0.0], xg, [x_fill_right]])
-                _zfill_ow = np.concatenate([[_z_back], z_curr_for_sea, [0.0]])
+                _zfill_ow = np.concatenate([[_z_back], z_curr_for_sea, [_msl]])
                 ax.fill_between(_xfill_ow, twl, _zfill_ow,
                                 where=(_zfill_ow <= twl),
                                 facecolor=c_sea, alpha=0.50, interpolate=True,
@@ -1278,6 +1367,139 @@ def run_model(config_source, check_mass_conservation=False,
         'shoreline': 0.0
     }
     
+    # ------------------------------------------------------------------
+    # MOVING DUNE TOE LEVEL (sea-level rise and berm option)
+    # ------------------------------------------------------------------
+    # Two optional switches, both False by default. With both off the model
+    # behaves exactly as before (bit-identical results).
+    #
+    #   slr_toe     : the dune toe level and the seaward flat part of the hard
+    #                 structure (substrate points 4 and 5) rise with sea level
+    #                 (p.slr * dt per step), as in the original CS-model where
+    #                 the dune foot follows mean sea level. The dike itself
+    #                 does not move: substrate point 4 slides up the dike face.
+    #   dynamic_toe : berm option. p.dfoot becomes the MAXIMUM toe height
+    #                 above mean sea level. The beach has two sides: a flat at
+    #                 that level ending at the berm point (x_berm) and the
+    #                 beach face from the berm point to the shoreline.
+    #                 Erosion: the toe retreats up the beach slope to the berm
+    #                 point, then landward on the flat. Accretion: the toe
+    #                 advances on the flat, then down the beach face. The beach
+    #                 budget is exact, so no phantom beach volume is needed.
+    #
+    # Vertical reference: the model datum is fixed. `msl` is the cumulative
+    # sea-level rise, `z_plane` the current toe level (= substrate_z[4] =
+    # substrate_z[5]) and `h_beach = z_plane - msl` the toe height above mean
+    # sea level (p.dfoot unless the toe stands on the beach slope).
+    slr_toe = _config_flag(getattr(p, 'slr_toe', False))
+    dynamic_toe = _config_flag(getattr(p, 'dynamic_toe', False))
+    # Sea-level rise is added to the SWL forcing inside the simulation. Set
+    # swl_includes_slr to True only if the SWL series already holds the trend.
+    swl_includes_slr = _config_flag(getattr(p, 'swl_includes_slr', False))
+    msl = 0.0                                   # cumulative sea-level rise (m, model datum)
+    # Dune toe level (m, model datum). With the options on it is the seaward flat
+    # of the substrate; with both off it is simply p.dfoot, exactly as before.
+    z_plane = float(substrate_z[4]) if (slr_toe or dynamic_toe) else float(p.dfoot)
+    h_ref = float(p.dfoot)                      # (maximum) toe height above mean sea level
+    # User-defined berm point (berm option). x_berm / z_berm in the config give
+    # the berm crest of the initial profile: x in the model x-coordinate, z in
+    # the model datum (= height above the initial mean sea level, like dfoot).
+    # Not given -> the berm starts at the dune toe (ys, dfoot), as before.
+    # z_berm is the berm crest level, i.e. the MAXIMUM toe level of the berm
+    # option, so it replaces p.dfoot in that role (h_ref).
+    user_x_berm = _optional_float(getattr(p, 'x_berm', None))
+    user_z_berm = _optional_float(getattr(p, 'z_berm', None))
+    user_berm = (user_x_berm is not None) or (user_z_berm is not None)
+    if user_berm and not dynamic_toe:
+        log("Warning: x_berm/z_berm are only used with dynamic_toe = true; ignored in this run")
+        user_berm = False
+    if user_berm:
+        if user_x_berm is None:
+            user_x_berm = float(p.ys)
+        if user_z_berm is None or abs(user_z_berm - float(p.dfoot)) <= 1e-6:
+            user_z_berm = float(p.dfoot)        # berm at the toe level (snapped so the toe is exactly on the flat)
+        h_ref = float(user_z_berm)
+    # Slope of the seaward dike face, taken once from the initial geometry.
+    # Substrate point 4 always stays on this line. Only needed with the options on.
+    _dx_face = float(substrate_x[4]) - float(substrate_x[3])
+    m_face = (substrate_z[3] - substrate_z[4]) / _dx_face if _dx_face > 0 else None
+    face_x3, face_z3 = float(substrate_x[3]), float(substrate_z[3])
+    # Initial substrate, kept as a fixed reference for the 'vdune_ref' output
+    substrate_x0, substrate_z0 = list(substrate_x), list(substrate_z)
+    if slr_toe or dynamic_toe:
+        # morpho_update uses `s_hs + dfoot` as the dike crest elevation, which
+        # requires the seaward flat to be at the dune toe level
+        if abs(substrate_z[4] - p.dfoot) > 1e-12 or abs(substrate_z[5] - p.dfoot) > 1e-12:
+            raise ValueError("slr_toe/dynamic_toe need base_elevation_front == dfoot")
+        if m_face is None or m_face <= 0:
+            raise ValueError("slr_toe/dynamic_toe need a sloping seaward dike face (ys_hs > ysprim_hs and s_hs > 0)")
+        if abs(m_face - p.betas_hs) > 1e-6 * max(1.0, abs(p.betas_hs)):
+            log(f"Warning: betas_hs ({p.betas_hs:g}) differs from the dike face slope of the geometry ({m_face:g})")
+        # Unit check for slr (must be m/s)
+        log(f"Sea-level rise over the run: {p.slr * p.dt * time_length_dt:.4f} m "
+            f"({p.slr * 365.25 * 86400 * 1000:.2f} mm/yr), "
+            f"{'already in the SWL forcing' if swl_includes_slr else 'added to the SWL forcing'}")
+    # Lowest toe height above mean sea level (numerical floor; the physical
+    # limit on progradation is wave attack on the low toe)
+    h_min = float(getattr(p, 'dfoot_min', 0.3 * h_ref))
+    # Beach-face slope limits (toe height above sea level / face width):
+    # steeper than slope_max -> the berm point retreats (erosive conditions);
+    # flatter than slope_min -> the berm point advances (accretive conditions);
+    # slope_min = 0 means no lower limit (berm point never advances).
+    slope_max = float(getattr(p, 'beach_slope_max', h_ref / max(p.bl + 1.0, 30.0)))
+    slope_min = float(getattr(p, 'beach_slope_min', 0.0))
+    if dynamic_toe and slope_min > 0 and slope_min >= slope_max:
+        raise ValueError("beach_slope_min must be smaller than beach_slope_max")
+    w_face_min = max(h_ref / slope_max, p.bl + 1.0)                 # narrowest beach face
+    w_face_max = h_ref / slope_min if slope_min > 0 else float('inf')   # widest beach face
+    x_berm = float(dune_x['ramp_toe'])          # berm point: seaward end of the flat at the maximum toe level
+    block_cum = 0.0                             # bookkeeping: sand below the toe level under the dune (cumulative change)
+    # Initial beach volume above mean sea level seaward of the toe (default: one beach face toe -> shoreline)
+    vbeach_0 = ((p.yg - p.ys) - p.bl) / p.al
+    vbeach_x_0 = None
+    if dynamic_toe and not user_berm and m_face:
+        # Dune toe given inside the dike (ys landward of the dike's seaward foot at
+        # the toe level): the beach only starts at the dike foot. The strip between
+        # ys and the foot is bookkept like a flat at the toe level (it is covered by
+        # the dike), so the berm starts at the dike foot. Without this, the beach
+        # face would be counted from ys and lose that strip in the first time step.
+        _x_foot = face_x3 + (face_z3 - float(dune_z['ramp_toe'])) / m_face
+        if _x_foot > x_berm + 1e-9 and _x_foot < p.yg - p.bl:
+            x_berm = _x_foot
+            vbeach_0 = (x_berm - p.ys) * h_ref + ((p.yg - x_berm) - p.bl) / p.al
+            vbeach_x_0 = ((p.yg - x_berm) - p.bl) / p.al
+            log(f"Note: dune toe ys ({p.ys:g}) lies inside the dike; the beach starts at the dike foot "
+                f"(x = {x_berm:g})")
+    if user_berm:
+        x_berm, vbeach_0, vbeach_x_0 = _initial_user_berm(
+            user_x_berm, user_z_berm, dune_x, dune_z, substrate_x, substrate_z, m_face,
+            face_x3, face_z3, p, w_face_min, w_face_max, log)
+    # Beach-face width band used by the berm point (narrowest / widest face allowed).
+    # The configured slope limits act on the EVOLUTION of the face, not on the
+    # initial profile (user berm or default berm at the toe): if the initial
+    # face is outside the band, the band starts at the initial width and only
+    # tightens towards the configured limits as the face moves back towards
+    # them (ratchet). The model thus builds on the initial profile instead of
+    # reshaping it in the first time step.
+    _w0 = float(dune_x['shoreline']) - x_berm
+    w_band_lo = min(w_face_min, _w0)
+    w_band_hi = max(w_face_max, _w0)
+    if dynamic_toe and (_w0 < w_face_min or _w0 > w_face_max):
+        log(f"Note: the initial beach face (slope {h_ref / _w0:.4f}) is outside beach_slope_min/beach_slope_max; "
+            f"it is kept, and the limits apply once the face evolves back towards them")
+    if dynamic_toe:
+        # New pivot 'berm' between 'ramp_toe' and 'shoreline'. It is the visible
+        # berm crest: max(x_berm, toe). The order matters because morpho_update
+        # interpolates over all pivot values in insertion order. When the dune
+        # covers the berm point (toe on the beach slope) the pivot sits on the toe.
+        _xs, _zs = dune_x.pop('shoreline'), dune_z.pop('shoreline')
+        dune_x['berm'], dune_z['berm'] = max(x_berm, dune_x['ramp_toe']), dune_z['ramp_toe']
+        dune_x['shoreline'], dune_z['shoreline'] = _xs, _zs
+    # Sand seaward of the toe down to the depth of closure (flat in front of
+    # the toe + beach face). Carried as a state variable by the berm option.
+    seaward_vol = (dune_x['shoreline'] - dune_x['ramp_toe']) * p.dclos + vbeach_0
+    vbeach_x = vbeach_x_0                       # beach volume used for the dissipation width X (berm option)
+
     # Initialize results dictionary to store time series
     results = {
         'dune_x': [dune_x.copy()],
@@ -1310,6 +1532,20 @@ def run_model(config_source, check_mass_conservation=False,
         'qwnet': [],
         'qbar': [],
         'cumdt': [],
+        # --- moving dune toe level (slr_toe / dynamic_toe); see CHANGES_slr_dynamic_toe.md ---
+        'dfoot': [z_plane],                  # dune toe level per step (m, model datum); n+1 values
+        'msl': [msl],                        # mean sea level per step (m, model datum); n+1 values
+        'substrate_x4': [substrate_x[4]],    # x of substrate point 4 (dike toe on the dike face); n+1 values
+        'x_berm': [x_berm],                  # berm point position; n+1 values
+        'block': [0.0],                      # bookkeeping volume below the toe level under the dune; n+1 values
+        'qslr': [],                          # Bruun-rule flux (m3/m/s)
+        'toe_relabel': [],                   # dune volume relabelled to beach by the toe-level shift (m3/m)
+        'dblock': [],                        # change of 'block' in the step (m3/m)
+        'shift_case': [],                    # state handled by the toe-level shift ('rise/none', 'dike_toe/none', ...)
+        'vdune_ref': [],                     # dune volume above the INITIAL substrate (fixed reference)
+        'vdune_true': [],                    # dune volume above the beach base profile (berm option); = vdune otherwise
+        'dynamic_toe': dynamic_toe,
+        'slr_toe': slr_toe,
         'wave_period': wave_period_time_series,
         'wave_direction': wave_dir_time_series,
         'wind_speed': wind_speed_time_series,
@@ -1355,7 +1591,8 @@ def run_model(config_source, check_mass_conservation=False,
     # Initialize varying parameters
     # Calculate initial vbeach from shoreline position (yg) instead of using config value
     # to ensure consistency with the beach volume formula
-    vbeach = ((p.yg - p.ys) - p.bl) / p.al
+    # (with a user-defined berm: flat between toe and berm + beach face, see _initial_user_berm)
+    vbeach = vbeach_0
     vramp = p.vramp
     rhov_df = p.rhov_df
     # shear-stress convolution coefficients per dune block (yaml section wind_shear)
@@ -1398,7 +1635,8 @@ def run_model(config_source, check_mass_conservation=False,
     
     # Calculate initial volumes for conservation tracking
     initial_volumes = calculate_compartment_volumes(
-        dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot
+        dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot,
+        block=(block_cum if dynamic_toe else None)
     )
     
     # Store initial volumes in conservation tracking
@@ -1565,7 +1803,15 @@ def run_model(config_source, check_mass_conservation=False,
         ### hydrodynamics ###
         h0 = wave_time_series[i] / 1.414 #rms wave height
         tp = wave_period_time_series[i]  # Wave period (s)
-        swl = swl_time_series[i]  # Sea water level (m)
+        swl = swl_time_series[i] + (0.0 if swl_includes_slr else msl)  # Sea water level (m, model datum; sea-level rise added here)
+        # Dune toe level at the start of the step. With slr_toe/dynamic_toe off:
+        # msl = 0 and z_plane = p.dfoot, so h_beach = dfoot_abs = p.dfoot.
+        h_beach = z_plane - msl      # toe height above mean sea level -> used with (swl - msl) in the beach formulas
+        dfoot_abs = z_plane          # toe level in the model datum -> compared with absolute water levels (r + swl)
+        # Beach volume-width relation: with the toe on the beach slope (berm option)
+        # the beach thickness scales with the toe height
+        al_eff = p.al * h_ref / h_beach if dynamic_toe else p.al
+        toe_on_flat = (h_beach >= h_ref - 1e-9)   # toe at the maximum level (on the flat) or on the beach slope
 
         # modify wave height with respect to wave direction
         if 90 <= p.shorn <= 270:
@@ -1609,20 +1855,23 @@ def run_model(config_source, check_mass_conservation=False,
         # calculate approximate runup
         
         LO = 1.5613 * (0.95 * tp) ** 2
-        if (dune_x['shoreline']- dune_x['ramp_toe']) > 30:
-            slope_foreshore = dune_z['ramp_toe']/(dune_x['shoreline']- dune_x['ramp_toe'])
+        if dynamic_toe:
+            # slope of the beach face (berm point to shoreline); the flat berm is not part of it
+            slope_foreshore = (dune_z['berm'] - dune_z['shoreline']) / max(dune_x['shoreline'] - dune_x['berm'], 30.0)
+        elif (dune_x['shoreline']- dune_x['ramp_toe']) > 30:
+            slope_foreshore = (dune_z['ramp_toe'] - dune_z['shoreline'])/(dune_x['shoreline']- dune_x['ramp_toe'])
         else:
-            slope_foreshore = dune_z['ramp_toe']/(30)
+            slope_foreshore = (dune_z['ramp_toe'] - dune_z['shoreline'])/(30)
 
         r = (0.158/0.03)*slope_foreshore*np.sqrt(h0 * LO) #we divide by an actual slope and recalculate based on the slope we have so to vary potential dissipation with X
-        X = 2 * vbeach / p.dfoot * (1 - swl / p.dfoot)
+        X = 2 * (vbeach_x if (dynamic_toe and vbeach_x is not None) else vbeach) / h_beach * (1 - (swl - msl) / h_beach)
 
         if X < 0:
             X = 0 # surge above the dunefoot, hence no bed for runup friction, only wave dissipation.
             
-        rprim = (r) * np.exp(-2 * p.cf * X) + (p.dfoot) * (1 - np.exp(-2 * p.cf * X))
+        rprim = (r) * np.exp(-2 * p.cf * X) + (h_beach) * (1 - np.exp(-2 * p.cf * X))
             
-        if rprim > p.dfoot:
+        if rprim > h_beach:
             r = rprim
 
         runup_time_series[i] = r
@@ -1641,21 +1890,21 @@ def run_model(config_source, check_mass_conservation=False,
         # multiplier to apply to qd (1 = no effect, 0.72 = 28% reduction)
         vegred = (1.0 - min(0.021 * Av_total, 0.28))
 
-        if r + swl > p.dfoot:
+        if r + swl > dfoot_abs:
             if dune_z['seaward_crest'] >= dune_z['ramp_dike_temp']:
                 if r + swl <= dune_z['seaward_crest']:
-                    qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
+                    qd = vegred * 4 * p.cimpact * (r + swl - dfoot_abs) ** 2 / tp
                 else:
                     log('OVERWASH')
-                    qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['seaward_crest']-p.dfoot)) / tp)
-                    alfa = (((r + swl - p.dfoot) / (dune_z['seaward_crest']-p.dfoot)) - 1) / aover
+                    qd = vegred * 4 * p.cimpact * (((r + swl - dfoot_abs) * (dune_z['seaward_crest']-dfoot_abs)) / tp)
+                    alfa = (((r + swl - dfoot_abs) / (dune_z['seaward_crest']-dfoot_abs)) - 1) / aover
             else: 
                 if r + swl <= dune_z['ramp_dike_temp']:
-                    qd = vegred * 4 * p.cimpact * (r + swl - p.dfoot) ** 2 / tp
+                    qd = vegred * 4 * p.cimpact * (r + swl - dfoot_abs) ** 2 / tp
                 else:
                     log('OVERWASH')
-                    qd = vegred * 4 * p.cimpact * (((r + swl - p.dfoot) * (dune_z['ramp_dike_temp']-p.dfoot)) / tp)
-                    alfa = (((r + swl - p.dfoot) / (dune_z['ramp_dike_temp']-p.dfoot)) - 1) / aover
+                    qd = vegred * 4 * p.cimpact * (((r + swl - dfoot_abs) * (dune_z['ramp_dike_temp']-dfoot_abs)) / tp)
+                    alfa = (((r + swl - dfoot_abs) / (dune_z['ramp_dike_temp']-dfoot_abs)) - 1) / aover
         else:
             qd = 0.0
         
@@ -1719,22 +1968,26 @@ def run_model(config_source, check_mass_conservation=False,
         qwe = mwe / (p.rhos * (1 - p.p))
 
         #yr = ys + (1 - (r + swl) / dfoot) * (yg - ys)
-        yr = dune_x['ramp_toe'] + (1 - (r + swl) / p.dfoot) * (dune_x['shoreline'] - dune_x['ramp_toe'])
+        if dynamic_toe and toe_on_flat:
+            # waterline on the beach face; the flat berm in front of the toe is dry below the toe level
+            yr = dune_x['berm'] + (1 - (r + swl - msl) / h_beach) * (dune_x['shoreline'] - dune_x['berm'])
+        else:
+            yr = dune_x['ramp_toe'] + (1 - (r + swl - msl) / h_beach) * (dune_x['shoreline'] - dune_x['ramp_toe'])
         #bdry = yr - ys
         bdry = yr - dune_x['ramp_toe']
 
-        if r + swl >= p.dfoot or yr < dune_x['ramp_toe']:
+        if r + swl >= dfoot_abs or yr < dune_x['ramp_toe']:
             bdry = 0
         f = bdry / abs(np.cos(np.radians(wdir)))
         qw = qwe * (1 - np.exp(-p.cwrate * f))
         qwnet = qw * np.cos(np.radians(wdir))
 
         # Introduce dynamic reduction based on Duran and Moore (2013) Ad
-        #qwnet = qwnet * max(1.0 - 4.2 * (s-p.dfoot) / (yg - ys), 0.0)
+        #qwnet = qwnet * max(1.0 - 4.2 * (s-dfoot) / (yg - ys), 0.0)
         if dune_z['seaward_crest'] >= dune_z['ramp_dike_temp']:
-            qwnet = qwnet * max(1.0 - 4.2 * (dune_z['seaward_crest']-p.dfoot) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
+            qwnet = qwnet * max(1.0 - 4.2 * (dune_z['seaward_crest']-dfoot_abs) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
         else:
-            qwnet = qwnet * max(1.0 - 4.2 * (dune_z['ramp_dike_temp']-p.dfoot) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
+            qwnet = qwnet * max(1.0 - 4.2 * (dune_z['ramp_dike_temp']-dfoot_abs) / (dune_x['shoreline'] - dune_x['ramp_toe']), 0.0)
 
         ######## AEOLIAN DEPOSITION AT DUNE ########
             
@@ -1763,9 +2016,20 @@ def run_model(config_source, check_mass_conservation=False,
         volbar, barnour[i] = bar(volbar, qbar, p.dt, vnourbar[i], barnour[i], qnour)
         
         # Calculate beach volume BEFORE morpho_update (using old ramp_toe)
-        vbeach_old = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
+        vbeach_old = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/al_eff
         db_old = vbeach_old / (dune_x['shoreline'] - dune_x['ramp_toe'])
-        vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
+        vbeachtot_old = dune_x['ramp_toe']  * (p.dclos + h_beach) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
+        # Start-of-step geometry needed by the toe-level update and the beach budget
+        x_toe_0 = dune_x['ramp_toe']
+        w_0 = dune_x['shoreline'] - dune_x['ramp_toe']
+        x_shore_0 = dune_x['shoreline']
+        z_bot = msl - p.dclos                     # depth of closure in the model datum (start of step)
+        if dynamic_toe and coupling_mode:
+            # shoreline imposed from outside: rebuild the seaward volume from the geometry
+            if toe_on_flat:
+                seaward_vol = (x_berm - x_toe_0) * (h_ref + p.dclos) + (x_shore_0 - x_berm) * p.dclos + ((x_shore_0 - x_berm) - p.bl) / p.al
+            else:
+                seaward_vol = w_0 * p.dclos + (w_0 - p.bl) / al_eff
 
             
         ####### MORPHOLOGICAL UPDATE OF THE DUNE PROFILE #########
@@ -1777,6 +2041,35 @@ def run_model(config_source, check_mass_conservation=False,
         dune_detached = (dune_x['ramp_crest'] <= substrate_x[2]
                          and dune_z['seaward_crest'] <= substrate_z[2] + 1e-6)
         dune_x, dune_z, deltavramp, erod_overwash, deltavramp_ero, deltavall = morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, qs_lee, qs, ql, r, swl, vnourd[i], p.dt, p.betas, p.betas_hs, p.betal, p.betal_hs, vramp, deltavall, lee_transfer=getattr(p, 'lee_transfer', 0.0))
+
+        ######## DUNE TOE LEVEL UPDATE (sea-level rise / berm option) #########
+        # morpho_update moved the dune on a flat plane at the old toe level. Here
+        # the plane (substrate points 4, 5) and the pivots resting on it are moved
+        # to the new toe level. Done before the vegetation and beach updates so
+        # that they see the final toe position of this step.
+        toe_relabel = 0.0                             # dune volume relabelled to beach-side sand by the shift
+        shift_info = {'case': 'none', 'lee': 'none'}
+        z_plane_0 = z_plane
+        if slr_toe or dynamic_toe:
+            dz_slr = p.slr * p.dt if slr_toe else 0.0
+            msl = msl + dz_slr
+            z_max = msl + h_ref                       # highest toe level: rises with sea level only
+            if dynamic_toe:
+                # the toe must lie on the beach base profile: flat at z_max up to the berm point, beach slope seaward of it
+                base = lambda x: beach_base_level(x, x_berm, z_max, x_toe_0, z_plane_0 + dz_slr, x_shore_0, msl, msl + h_min, slope_min)
+                z_target = find_toe_level(dune_x, dune_z, substrate_x, substrate_z, m_face, base, msl + h_min, z_max)
+            else:
+                # toe height above mean sea level stays p.dfoot
+                z_target = z_plane + dz_slr
+            if z_target != z_plane:
+                # new dune and substrate objects are returned; results['substrate_x'] keeps the initial substrate
+                dune_x, dune_z, substrate_x, substrate_z, toe_relabel, shift_info = shift_base_plane(
+                    dune_x, dune_z, substrate_x, substrate_z, z_target, m_face)
+                z_plane = float(substrate_z[4])       # single source of truth for the toe level
+            dune_z['shoreline'] = msl
+        h_beach_1 = z_plane - msl                     # toe height above mean sea level after the update
+        al_eff_1 = p.al * h_ref / h_beach_1 if dynamic_toe else p.al
+        toe_on_flat_1 = (h_beach_1 >= h_ref - 1e-9)
 
         ######## VEGETATION GROWTH UPDATE #########
             # update vegetation parameters
@@ -1830,21 +2123,69 @@ def run_model(config_source, check_mass_conservation=False,
         overwash_volume_time_series[i] = 0.0 if dune_detached else erod_overwash
                 
         # Calculate beach volume after morpho_update, but before the shoreline movement (so to not account the volume created by the moving dune)
-        vbeach_phantom = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
-        db_phantom = vbeach_phantom / (dune_x['shoreline'] - dune_x['ramp_toe'])
-        vbeachtot_phantom = dune_x['ramp_toe']  * (p.dclos + p.dfoot) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
-        
-        # Calculate new beach volume including eroded sediment from dune
-        vbeachtotnew = vbeachtot_phantom + (-qwnet - qslr + qnour - qbar) * p.dt + vnourb[i] + deltavramp_ero
-        vbeachtotmin = dune_x['ramp_toe'] * (p.dclos + p.dfoot) + 0.5 * p.dfoot**2 / p.betaf + p.dfoot / p.betaf * p.dclos
+        # Beach fluxes of this step (aeolian loss, Bruun sink, nourishment, bar exchange, eroded dune sand)
+        q_beach = (-qwnet - qslr + qnour - qbar) * p.dt + vnourb[i] + deltavramp_ero
+        # Change of the sand below the toe level under the dune (footprint gained/lost and toe-level change).
+        # Both terms use the same bottom level, so only real geometric changes count.
+        if slr_toe or dynamic_toe:
+            dblock = (block_volume(dune_x['ramp_toe'], z_plane, z_bot, face_x3, face_z3, m_face)
+                      - block_volume(x_toe_0, z_plane_0, z_bot, face_x3, face_z3, m_face))
+        else:
+            dblock = 0.0   # not used by the original formulation
+        if dynamic_toe:
+            # BERM OPTION: exact budget, no phantom volume. The sand seaward of the toe changes by the beach
+            # fluxes, by the dune sand relabelled when the toe level moved (toe_relabel) and by the sand
+            # under the footprint the dune gained or lost (dblock).
+            seaward_vol = seaward_vol + q_beach + toe_relabel - dblock
+            xt = dune_x['ramp_toe']
+            if toe_on_flat_1:
+                # Toe at the maximum level: flat between toe and berm point + beach face berm point -> shoreline.
+                #   seaward_vol = (x_berm - xt)*(dfoot + dclos) + w_face*dclos + (w_face - bl)/al
+                x_berm = max(x_berm, xt)
+                if not coupling_mode:
+                    w_face = (p.al * (seaward_vol - (x_berm - xt) * (h_ref + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
+                    if (w_face < w_band_lo and x_berm > xt) or w_face > w_band_hi:
+                        # face steeper than slope_max: the berm point erodes back (not past the toe);
+                        # face flatter than slope_min: the berm point builds out and the flat widens
+                        w_lim = w_band_lo if w_face < w_band_lo else w_band_hi
+                        x_berm = max(xt, xt + (seaward_vol - w_lim * p.dclos - (w_lim - p.bl) / p.al) / (h_ref + p.dclos))
+                        w_face = (p.al * (seaward_vol - (x_berm - xt) * (h_ref + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
+                    dune_x['shoreline'] = x_berm + w_face
+                w_face = dune_x['shoreline'] - x_berm
+                # ratchet: the band never gets wider than the configured limits allow,
+                # and tightens back towards them as the face relaxes
+                w_band_lo = min(w_face_min, max(w_band_lo, w_face))
+                w_band_hi = max(w_face_max, min(w_band_hi, w_face))
+                vbeach = (x_berm - xt) * h_ref + (w_face - p.bl) / p.al            # sand above mean sea level seaward of the toe
+                vbeach_x = 0.5 * (x_berm - xt) * h_ref + (w_face - p.bl) / p.al    # equivalent volume for the dissipation width X
+                dune_x['berm'], dune_z['berm'] = x_berm, z_plane
+            else:
+                # Toe on the beach slope (dune covers the berm point): one beach face toe -> shoreline,
+                # thickness scaled with the toe height.  seaward_vol = w*dclos + (w - bl)/al_eff
+                if not coupling_mode:
+                    w_1 = (al_eff_1 * seaward_vol + p.bl) / (1 + al_eff_1 * p.dclos)
+                    dune_x['shoreline'] = xt + w_1
+                vbeach = ((dune_x['shoreline'] - xt) - p.bl) / al_eff_1
+                vbeach_x = vbeach
+                dune_x['berm'], dune_z['berm'] = xt, z_plane                        # berm point is under the dune
+        else:
+            # ORIGINAL FORMULATION (unchanged logic; p.dfoot -> h_beach_1 and p.al -> al_eff_1, which are the same numbers here)
+            vbeach_phantom = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/al_eff_1
+            db_phantom = vbeach_phantom / (dune_x['shoreline'] - dune_x['ramp_toe'])
+            vbeachtot_phantom = dune_x['ramp_toe']  * (p.dclos + h_beach_1) + (dune_x['shoreline'] - dune_x['ramp_toe']) * (p.dclos + db_old)
 
-        # Calculate new shoreline coordinate
-        if not coupling_mode:
-        #if output_config == {}:
-            dune_x['shoreline'] = dune_x['ramp_toe'] + (p.al * (vbeachtotnew - dune_x['ramp_toe'] * (p.dfoot + p.dclos)) + p.bl) / (1 + p.al * p.dclos)
-        
-        # Calculate final beach volume for output
-        vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/p.al
+            # Calculate new beach volume including eroded sediment from dune
+            vbeachtotnew = vbeachtot_phantom + (-qwnet - qslr + qnour - qbar) * p.dt + vnourb[i] + deltavramp_ero
+            vbeachtotmin = dune_x['ramp_toe'] * (p.dclos + h_beach_1) + 0.5 * h_beach_1**2 / p.betaf + h_beach_1 / p.betaf * p.dclos
+
+            # Calculate new shoreline coordinate
+            if not coupling_mode:
+            #if output_config == {}:
+                dune_x['shoreline'] = dune_x['ramp_toe'] + (al_eff_1 * (vbeachtotnew - dune_x['ramp_toe'] * (h_beach_1 + p.dclos)) + p.bl) / (1 + al_eff_1 * p.dclos)
+
+            # Calculate final beach volume for output
+            vbeach = ((dune_x['shoreline'] - dune_x['ramp_toe'])-p.bl)/al_eff_1
+        block_cum = block_cum + dblock
         vbeach_volume_time_series[i] = vbeach # actual vbeach
         
         #delta_vbeach_volume_time_series[i] = vbeach - vbeach_phantom #change based on the phantom
@@ -1855,7 +2196,8 @@ def run_model(config_source, check_mass_conservation=False,
         # ------------------------------------------------------------------
         # Calculate current compartment volumes.
         current_volumes = calculate_compartment_volumes(
-            dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, p.dfoot
+            dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, p.dclos, h_beach_1,
+            block=(block_cum + seaward_vol - ((dune_x['shoreline'] - dune_x['ramp_toe']) * p.dclos + vbeach) if dynamic_toe else None)
         )
         
         # Build the per-step flux dictionary used by the conservation checker.
@@ -1868,7 +2210,10 @@ def run_model(config_source, check_mass_conservation=False,
             'eroded_volume': deltavramp_ero,
             'nour_dune': vnourd[i],
             'nour_beach': vnourb[i],
-            'nour_bar': vnourbar[i]
+            'nour_bar': vnourbar[i],
+            'qslr': qslr,
+            'toe_relabel': toe_relabel,
+            'exact_beach': dynamic_toe,
         }
 
         # Store nourishment volumes applied at this timestep.
@@ -1917,6 +2262,30 @@ def run_model(config_source, check_mass_conservation=False,
         results['qwnet'].append(qwnet)
         results['qbar'].append(qbar)
         results['cumdt'].append(cumdt)
+        results['dfoot'].append(z_plane)
+        results['msl'].append(msl)
+        results['substrate_x4'].append(substrate_x[4])
+        results['qslr'].append(qslr)
+        results['toe_relabel'].append(toe_relabel)
+        results['dblock'].append(dblock)
+        results['block'].append(block_cum)
+        results['x_berm'].append(x_berm)
+        if dynamic_toe:
+            # dune volume above the beach base profile (flat at the maximum toe level up to the berm point, beach slope seaward of it)
+            _bx = list(substrate_x); _bz = list(substrate_z)
+            _zm = msl + h_ref
+            _bx[4] = face_x3 + (face_z3 - _zm) / m_face; _bz[4] = _zm
+            if dune_x['ramp_toe'] > x_berm + 1e-9 and x_berm > _bx[4] + 1e-9:
+                _bx = _bx[:5] + [x_berm, dune_x['ramp_toe'], dune_x['ramp_toe'] + 1.0]; _bz = _bz[:5] + [_zm, z_plane, z_plane]
+            else:
+                _bx[5] = max(_bx[5], _bx[4] + 1.0); _bz[5] = _zm
+            results['vdune_true'].append(partial_volume(dune_x, dune_z, _bx, _bz, dune_x['lee_foot'], dune_x['ramp_toe']))
+        else:
+            results['vdune_true'].append(vdune)
+        results['shift_case'].append(shift_info['case'] + '/' + shift_info['lee'])
+        # dune volume above the initial substrate (fixed reference; equals vdune while the toe level has not moved)
+        results['vdune_ref'].append(partial_volume(dune_x, dune_z, substrate_x0, substrate_z0, dune_x['lee_foot'], dune_x['ramp_toe'])
+                                    if (slr_toe or dynamic_toe) else vdune)
 
         ## print progress
         if i % 1000 == 0:
@@ -1934,6 +2303,7 @@ def run_model(config_source, check_mass_conservation=False,
                 'swl': swl,
                 'runup': r,
                 'total_water_level': total_water_level,
+                'msl': msl,
                 'wind_speed': wind_speed_time_series[i],
                 'wind_direction': wind_dir_time_series[i],
             }

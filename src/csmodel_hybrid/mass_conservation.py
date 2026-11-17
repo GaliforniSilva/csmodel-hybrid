@@ -83,7 +83,7 @@ def calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z):
                           dune_x['lee_foot'], dune_x['ramp_toe'])
 
 
-def calculate_compartment_volumes(dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, dclos, dfoot):
+def calculate_compartment_volumes(dune_x, dune_z, substrate_x, substrate_z, vbeach, volbar, dclos, dfoot, block=None):
     """
     Calculate volumes for all compartments at a single timestep.
     
@@ -112,7 +112,14 @@ def calculate_compartment_volumes(dune_x, dune_z, substrate_x, substrate_z, vbea
         Dictionary with 'dune', 'beach', 'bar', and 'total' volumes
     """
     dune_vol = calc_dune_vol(dune_x, dune_z, substrate_x, substrate_z)
-    beach_vol = calculate_actual_beach_volume(dune_x, vbeach, dclos, dfoot)
+    # block=None: original definition (under-dune block ramp_toe*(dclos+dfoot) + beach wedge).
+    # block given (berm option, dynamic_toe): exact bookkeeping. main.py passes the sand below the
+    # toe level under the dune (and the flat in front of the toe) so that the beach compartment
+    # equals that block plus the beach face; no phantom volume arises when the toe moves.
+    if block is None:
+        beach_vol = calculate_actual_beach_volume(dune_x, vbeach, dclos, dfoot)
+    else:
+        beach_vol = block + (dune_x['shoreline'] - dune_x['ramp_toe']) * dclos + vbeach
     bar_vol = volbar
     total_vol = dune_vol + beach_vol + bar_vol
     
@@ -172,10 +179,13 @@ def calculate_timestep_conservation(volumes_current, volumes_prev, fluxes, dt, i
     eroded = fluxes['eroded_volume']
     qwnet_vol = fluxes['qwnet'] * dt
     
-    expected_dune_change  = total_aeolian - eroded + nour_dune
-    expected_beach_change = -qwnet_vol - qbar_vol + eroded + nour_beach
+    qslr_vol = fluxes.get('qslr', 0.0) * dt          # Bruun-rule sink (leaves the system)
+    relabel = fluxes.get('toe_relabel', 0.0)         # dune sand relabelled by the base-plane shift
+    exact = fluxes.get('exact_beach', False)
+    expected_dune_change  = total_aeolian - eroded + nour_dune - relabel
+    expected_beach_change = -qwnet_vol - qbar_vol + eroded + nour_beach - qslr_vol + (relabel if exact else 0.0)
     expected_bar_change   = qbar_vol + nour_bar
-    expected_total_change = nour_dune + nour_beach + nour_bar  # internal fluxes cancel
+    expected_total_change = nour_dune + nour_beach + nour_bar - qslr_vol - (0.0 if exact else relabel)
     
     # Calculate errors
     dune_error  = delta_dune  - expected_dune_change
@@ -274,6 +284,34 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     substrate_x = results['substrate_x']
     substrate_z = results['substrate_z']
 
+    # --- moving dune toe level (slr_toe / dynamic_toe) -------------------
+    # With these options the seaward flat of the substrate (points 4, 5)
+    # changes during the run. results['substrate_x'/'substrate_z'] hold the
+    # INITIAL substrate; the substrate of step k is rebuilt from the stored
+    # toe level (results['dfoot'][k]) and dike-toe position
+    # (results['substrate_x4'][k]). Older result files without these keys
+    # are handled as before.
+    dynamic_toe = bool(results.get('dynamic_toe', False))
+    _has_toe_series = ('dfoot' in results) and ('substrate_x4' in results)
+
+    def substrate_at(k):
+        if not _has_toe_series:
+            return substrate_x, substrate_z
+        sx = [float(v) for v in substrate_x]
+        sz = [float(v) for v in substrate_z]
+        sx[4] = float(results['substrate_x4'][k])
+        sz[4] = float(results['dfoot'][k])
+        sz[5] = sz[4]
+        sx[5] = max(sx[5], sx[4] + 1.0)
+        return sx, sz
+
+    def beach_volume_at(k, vbeach_k):
+        # Berm option: the beach compartment (sand below the toe level under
+        # the dune + flat + beach face) is tracked exactly every step.
+        if dynamic_toe and 'conservation' in results:
+            return results['conservation']['beach_volume'][k]
+        return calculate_actual_beach_volume(results['dune_x'][k], vbeach_k, dclos, dfoot)
+
     n_steps = len(results['time'])
     dt = results['time'][1] - results['time'][0] if n_steps > 1 else 0.0
     total_time_hours = results['time'][-1] / 3600 if n_steps > 0 else 0.0
@@ -296,11 +334,9 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
         initial_vbeach = results['vbeach'][0]
         initial_dune_vol = calc_dune_vol(
             results['dune_x'][1], results['dune_z'][1],
-            substrate_x, substrate_z
+            *substrate_at(1)
         )
-        initial_beach_vol = calculate_actual_beach_volume(
-            results['dune_x'][1], initial_vbeach, dclos, dfoot
-        )
+        initial_beach_vol = beach_volume_at(1, initial_vbeach)
         initial_bar_vol = results['volbar'][0]
     else:
         initial_vbeach = (
@@ -309,11 +345,9 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
         ) / al
         initial_dune_vol = calc_dune_vol(
             results['dune_x'][0], results['dune_z'][0],
-            substrate_x, substrate_z
+            *substrate_at(0)
         )
-        initial_beach_vol = calculate_actual_beach_volume(
-            results['dune_x'][0], initial_vbeach, dclos, dfoot
-        )
+        initial_beach_vol = beach_volume_at(0, initial_vbeach)
         initial_bar_vol = (
             results['volbar'][0] - results['qbar'][0] * dt
         )
@@ -327,11 +361,9 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     # ------------------------------------------------------------------
     final_dune_vol = calc_dune_vol(
         results['dune_x'][-1], results['dune_z'][-1],
-        substrate_x, substrate_z
+        *substrate_at(-1)
     )
-    final_beach_vol = calculate_actual_beach_volume(
-        results['dune_x'][-1], results['vbeach'][-1], dclos, dfoot
-    )
+    final_beach_vol = beach_volume_at(-1, results['vbeach'][-1])
     final_bar_vol = results['volbar'][-1]
     final_total = final_dune_vol + final_beach_vol + final_bar_vol
 
@@ -364,19 +396,33 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     else:
         total_nourishment = 0.0
 
+    # Sea-level rise terms (zero / absent in runs without them):
+    #  - Bruun-rule sink qslr*dt: sand that leaves the beach to raise the
+    #    active profile; it leaves the system.
+    #  - toe_relabel: dune sand that ends up below the rising toe level. With
+    #    slr_toe alone it becomes part of the under-dune block, whose bottom
+    #    rises with the depth of closure, so it leaves the tracked volume.
+    #    With the berm option it is exchanged with the beach inside the exact
+    #    budget and needs no term here.
+    total_qslr_vol = float(np.sum(np.asarray(results.get('qslr', [])[flux_start:n_steps]) * dt))
+    total_toe_relabel = float(np.sum(results.get('toe_relabel', [])[flux_start:n_steps]))
+
     total_transport = (
         abs(total_aeolian) +
         abs(total_qbar_vol) +
-        abs(total_eroded)
+        abs(total_eroded) +
+        abs(total_qslr_vol)
     )
 
     # ------------------------------------------------------------------
     # PHANTOM BEACH CORRECTION
     # ------------------------------------------------------------------
+    # Not needed with the berm option (dynamic_toe): there the toe moves along
+    # the beach profile and the budget is exact, so no phantom volume exists.
     phantom_correction = 0.0
     vb_prev = initial_vbeach
 
-    for i in range(flux_start, n_steps):
+    for i in range(flux_start, n_steps if not dynamic_toe else flux_start):
         rt_old = results['dune_x'][i]['ramp_toe']
         sl_old = results['dune_x'][i]['shoreline']
         rt_new = results['dune_x'][i + 1]['ramp_toe']
@@ -393,7 +439,10 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     # Phantom beach correction (geometric effect of ramp_toe movement) plus
     # any externally added sediment (nourishments) together define the expected
     # change in total volume.  Internal fluxes cancel exactly by design.
-    expected_total_change = phantom_correction + total_nourishment
+    # Sea-level rise adds the Bruun sink and, without the berm option, the
+    # dune slab relabelled below the rising toe level (both zero otherwise).
+    expected_total_change = (phantom_correction + total_nourishment - total_qslr_vol
+                             - (0.0 if dynamic_toe else total_toe_relabel))
 
     total_error = delta_total - expected_total_change
     total_error_percent = abs(100 * total_error / initial_total)
@@ -411,6 +460,15 @@ def check_mass_conservation(results, config, verbose=True, skip_first_step=False
     # ------------------------------------------------------------------
     if total_nourishment != 0.0:
         report_print(f"  Total nourishment applied: {total_nourishment:+.4f} m³/m")
+        report_print()
+    if total_qslr_vol != 0.0:
+        report_print(f"  Sea-level rise (Bruun) sink:          {-total_qslr_vol:+.4f} m³/m")
+        report_print()
+    if total_toe_relabel != 0.0 and not dynamic_toe:
+        report_print(f"  Dune sand relabelled below toe level: {-total_toe_relabel:+.4f} m³/m")
+        report_print()
+    if dynamic_toe:
+        report_print("  Berm option (dynamic_toe): exact beach budget, no phantom correction")
         report_print()
 
     report_print("MASS BALANCE ASSESSMENT:")

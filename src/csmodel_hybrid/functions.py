@@ -2015,14 +2015,37 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
             else:
                 ys_temp = dune_x['seaward_crest'] + ((dune_z['seaward_crest']-dfoot) /betas)
             
+            # FIX (ramp reaching a sand scarp that stands over the seaward dike face):
+            # after erosion a vertical sand scarp can stand over the dike face (seaward_crest between
+            # ysprim_hs and ys_hs) with the dike face exposed below it. The ramp is then rebuilt on the
+            # dike face ("ramp in front of the dike" branch below). Once the ramp crest reaches the foot of
+            # the scarp, the ramp has to keep growing against the sand scarp (normal procedure further
+            # below), not continue up the dike face underneath the sand. Without this check the 1 cm
+            # tolerance of the next elif keeps the dike branch active for a few more steps and the normal
+            # procedure then fails in brentq ("f(a) and f(b) must have different signs"), e.g. test16d.
+            # The flag is True only in that state; every other state follows the original branches.
+            ramp_at_scarp = (abs(dune_x['seaward_crest'] - dune_x['ramp_crest']) <= 2e-2
+                             and dune_x['ramp_toe'] > ys_hs + 1e-6
+                             and substrate_x[3] < dune_x['seaward_crest'] < ys_hs
+                             and dune_z['ramp_crest'] >= np.interp(dune_x['seaward_crest'], substrate_x, substrate_z) - 1e-6
+                             and dune_z['seaward_crest'] > dune_z['ramp_crest'] + 1e-9
+                             and dune_z['ramp_toe_temp'] <= dune_z['ramp_toe'] + 1e-9)
+            if ramp_at_scarp:
+                # the ramp crest sits at the scarp: align it exactly with the scarp position
+                dune_x['ramp_crest'] = dune_x['seaward_crest']
+                dune_x['ramp_dike_temp'] = dune_x['seaward_crest']
             # start with the detached case because of the order of the pivot points
             if (dune_x['ramp_crest'] > dune_x['seaward_crest'] and dune_z['seaward_crest']<dune_z['ramp_dike_temp'] and dune_z['ramp_crest'] == dune_z['ramp_dike_temp'] and dune_z['seaward_crest'] < dune_z['ramp_crest']):# or (dune_z['seaward_crest'] < dune_z['ramp_crest'] and dune_x['ramp_crest'] > dune_x['seaward_crest']):
                 
                     sramp_new_r = dune_z['ramp_crest']-dfoot  # ramp full
                     vextra = vrampnew - vrampmax # extra volume that needs to be accomodated by moving the dune toe and ysprim
                     
-                    ys_new_r = (vextra / (dune_z['ramp_crest']-dfoot)) + (ys + ((sramp_new_r - sramp) / betas)) # get the new seaward position of the ramp
                     ysprim_new_r = dune_x['ramp_crest'] + (vextra / (dune_z['ramp_crest']-dfoot))  # get the new crest position of the ramp 
+                    # FIX: the toe follows the new crest with the ramp slope betas. vextra is measured against the
+                    # full ramp at slope betas (vrampmax), so the toe must be placed on that slope. The old line
+                    # shifted the OLD toe by the same amount, which keeps any slope mismatch of the ramp (e.g. left
+                    # by a toe-level shift with dynamic_toe/slr_toe) and loses (vrampmax - vramp) every step.
+                    ys_new_r = ysprim_new_r + sramp_new_r / betas # get the new seaward position of the ramp
                 
 
                     dune_x['ramp_crest'] = ysprim_new_r
@@ -2031,7 +2054,7 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_z['ramp_toe_temp'] = dfoot    
             
             # check if ramp is in front of the dike or not:
-            elif (dune_x['ramp_crest'] > dune_x['seaward_crest'] + 1e-2) or (abs(dune_x['seaward_crest'] - dune_x['ramp_crest']) <= 1e-2 and dune_x['seaward_crest'] < ys_hs):  # FIX: 1 cm tolerance, an eroded scarp leaves ramp_crest a few mm seaward of seaward_crest  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
+            elif (not ramp_at_scarp) and ((dune_x['ramp_crest'] > dune_x['seaward_crest'] + 1e-2) or (abs(dune_x['seaward_crest'] - dune_x['ramp_crest']) <= 1e-2 and dune_x['seaward_crest'] < ys_hs)):  # FIX: 1 cm tolerance, an eroded scarp leaves ramp_crest a few mm seaward of seaward_crest  # if there is a ramp building in front of a exposed dike (hence to connections) or a flat surface connecting somewhere in the dike with ys = ysprim
                 
                 if dune_z['seaward_crest'] <= s_hs + dfoot or dune_x['ramp_toe'] < ys_hs: # there is no active dune on top of the dike, OR ramp toe has retreated to/behind the dike seaward toe (post-erosion scarp: ramp_crest==seaward_crest, dike face exposed, recovery needed): # there is no active dune on top of the dike, and everything is exposed
                     vrampmax_hs = ((((s_hs)**2)/(2*betas)))-((((s_hs)**2)/(2*betas_hs))) # volume to fill the front of the dike
@@ -2467,6 +2490,14 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
         yl_new_c = dune_x['lee_foot']
         ysprim_new_c = dune_x['seaward_crest']
         
+        # ROUNDING GUARD (needed once the dune toe level is not a round number, i.e. with slr_toe/dynamic_toe):
+        # pivots that are at the seaward-crest level up to rounding get exactly that level. The branch tests
+        # below compare elevations with < and ==, and (z - dfoot) + dfoot is not always exactly z. Without
+        # this, a 1-bit difference sends a normal step into the detached-crest branch and the crest deposit
+        # of that step is lost. With a round dfoot nothing is changed (results are bit-identical).
+        for _k in ('lee_crest', 'crest_temp', 'ramp_dike_temp', 'ramp_crest'):
+            if dune_z.get(_k) is not None and dune_z[_k] != dune_z['seaward_crest'] and abs(dune_z[_k] - dune_z['seaward_crest']) <= 1e-9:
+                dune_z[_k] = dune_z['seaward_crest']
         if qs_crest > 0:
             # change in the crest
             deltavcrest = qs_crest # how much sand is deposited on the crest
@@ -2910,6 +2941,54 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
 
             vdune_aftercrest = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
 
+        ################## lee deposit on a detached flat lee without crest deposit ##################
+        # ROUTING FIX: the detached flat-lee state (crest_temp seaward of lee_crest at the same level, below
+        # the crest; e.g. a lee plateau that leans on the back of the dike) is handled inside the crest block
+        # (detach_tag 2), which is only entered when qs_crest > 0. In a step with lee deposit but no crest
+        # deposit the lee went to the generic lee block, which routes this state to the "lee behind the dike"
+        # branch: that one rebuilds the lee against the back slope of the dike and drops most of the plateau
+        # (mass loss, and later a brentq crash). Here the lee deposit raises the detached plateau exactly as
+        # in detach_tag 2, with the crest pivots unchanged.
+        if qs_crest <= 0 and qs_lee > 0 and vlee_lateral <= 0:
+            _slump = False
+            if substrate_x[2] > substrate_x[1] and substrate_z[2] > substrate_z[1] and substrate_x[1] <= dune_x['lee_crest'] < substrate_x[2] and dune_z['lee_crest'] < substrate_z[2] and abs(dune_z['lee_foot'] - substrate_z[1]) < 1e-6:
+                _slope_back = (substrate_z[2] - substrate_z[1]) / (substrate_x[2] - substrate_x[1])
+                _vlee_old = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], substrate_x[2])
+                _h_lee = (2 * _vlee_old / (1 / betal - 1 / _slope_back)) ** 0.5
+                _slump = _h_lee < substrate_z[2] - substrate_z[1]
+            if (dune_x['crest_temp'] > dune_x['lee_crest'] and abs(dune_z['crest_temp'] - dune_z['lee_crest']) < 1e-9
+                    and dune_z['lee_crest'] < dune_z['ramp_dike_temp'] and not _slump):
+                _v_before_lee0 = partial_volume(dune_x, dune_z, substrate_x, substrate_z, dune_x['lee_foot'], dune_x['ramp_toe'])
+                _z_ct = dune_z['crest_temp']
+
+                def _lee_plateau_pivots(s_pot):
+                    # same pivot movement as f_crest_triangular_detach_flatcrest
+                    if s_pot < substrate_z[2] - dfoot and _z_ct < substrate_z[2]:
+                        x_ct = dune_x['crest_temp'] + (s_pot - (_z_ct - dfoot)) / betal_hs
+                    else:
+                        x_ct = dune_x['crest_temp'] + (s_pot - (_z_ct - dfoot)) / betal
+                    x_lc = dune_x['lee_crest'] + (s_pot - (_z_ct - dfoot)) / betal
+                    tx, tz = dict(dune_x), dict(dune_z)
+                    tx['lee_crest'] = x_lc; tz['lee_crest'] = s_pot + dfoot
+                    tx['crest_temp'] = min(x_ct, dune_x['ramp_crest']); tz['crest_temp'] = s_pot + dfoot
+                    if s_pot > dune_z['seaward_crest'] - dfoot:   # reattached: the lee top meets the crest flank
+                        x_fl = dune_x['seaward_crest'] + (s_pot + dfoot - dune_z['seaward_crest']) / betal
+                        tx['crest_temp'] = tx['seaward_crest'] = x_fl; tz['seaward_crest'] = s_pot + dfoot
+                    return tx, tz
+
+                def _f_lee_plateau(s_pot):
+                    tx, tz = _lee_plateau_pivots(s_pot)
+                    return partial_volume(tx, tz, substrate_x, substrate_z, tx['lee_foot'], tx['ramp_toe']) - _v_before_lee0 - qs_lee
+
+                _s_lo, _s_hi = dune_z['lee_crest'] - dfoot, dune_z['ramp_dike_temp'] - dfoot
+                if _f_lee_plateau(_s_hi) >= 0:          # the deposit fits below the crest: raise the plateau
+                    _s_new = brentq(_f_lee_plateau, _s_lo, _s_hi, xtol=1e-14)
+                    _tx, _tz = _lee_plateau_pivots(_s_new)
+                    for _k in ('lee_crest', 'crest_temp', 'seaward_crest'):
+                        dune_x[_k], dune_z[_k] = _tx[_k], _tz[_k]
+                    qs_lee = 0
+                # otherwise (plateau would reach the crest) the generic lee block below handles the deposit
+
         ################## update lee ##################
         if qs_lee + vlee_lateral > 0:
             
@@ -2994,7 +3073,9 @@ def morpho_update(dune_x, dune_z, substrate_x, substrate_z, qs_ramp, qs_crest, q
                     dune_x['lee_crest'] = ylprim_new_l
                     dune_z['lee_crest'] = s_new_c + dfoot
                     
-                    if dune_z['lee_foot'] > dune_z['back_ref']:
+                    # x test added (same condition as at the end of the lee update): with a rising toe level
+                    # back_ref could otherwise be left seaward of the lee foot, creating a notch in partial_volume
+                    if dune_x['back_ref'] > dune_x['lee_foot'] or dune_z['lee_foot'] > dune_z['back_ref']:
                         dune_x['back_ref'] = yl_new_l #change the reference to the dunefoot to avoid calculating extra volume from the link between ref and dunefoot above reference
                         dune_z['back_ref'] = z_int_l
                     
@@ -3454,3 +3535,183 @@ def nour(i, iv, volat, volad, volab, volrb, maxnour):
             iv += 1
 
     return vnourd, vnourb, vnourbar, iv
+
+
+# ---------------------------------------------------------------------------
+# MOVING DUNE TOE LEVEL: helpers for sea-level rise (slr_toe) and the berm
+# option (dynamic_toe). Called from main.py right after morpho_update; they are
+# not used when both options are off. See CHANGES_slr_dynamic_toe.md.
+#
+# Concept: morpho_update works on a flat "base plane" at the dune toe level
+# (substrate points 4 and 5, with substrate_z[4] == dune_z['ramp_toe']). These
+# helpers move that plane to a new level and re-anchor the pivots resting on
+# it, so morpho_update keeps all its geometric assumptions.
+#   block_volume      bookkeeping volume of the sand below the plane under the dune
+#   _reanchor_pivots  geometry of the plane shift (no volumes)
+#   shift_base_plane  plane shift + dune volume relabelled by it
+#   beach_base_level  elevation of the beach base profile (flat + beach slope)
+#   find_toe_level    plane level for which the toe lies on that profile
+# ---------------------------------------------------------------------------
+def block_volume(x_toe, z_plane, z_bot, x3, z3, m_face):
+    """
+    Bookkeeping volume of the sand below the base plane, landward of the dune
+    toe and seaward of the seaward dike face (taken as a straight line through
+    the seaward dike crest), down to z_bot. Signed and exact:
+        d/dx_toe = z_plane - z_bot ;  d/dz_plane = x_toe - x4(z_plane)
+    Only differences taken with the same z_bot are meaningful.
+    """
+    z_mid = 0.5 * (z_plane + z_bot)
+    return (z_plane - z_bot) * (x_toe - (x3 + (z3 - z_mid) / m_face))
+
+
+def _reanchor_pivots(dune_x, dune_z, substrate_x, substrate_z, z_new, m_face, tol_z=1e-9, tol_x=1e-9):
+    """
+    Geometry of the base-plane shift (no volumes): substrate points 4 and 5 go
+    to z_new (point 4 slides along the seaward dike face) and the dune pivots
+    resting on the seaward plane are re-anchored. Returns new dune_x, dune_z,
+    substrate_x, substrate_z and info. Raises ValueError if the plane would
+    bury the dune front or the lee crest.
+    """
+    z_old = float(substrate_z[4])
+    z_new = float(z_new)
+    info = {'case': 'none', 'lee': 'none'}
+    dx, dz = dict(dune_x), dict(dune_z)
+    sx, sz = [float(v) for v in substrate_x], [float(v) for v in substrate_z]
+    if z_new == z_old:
+        return dx, dz, sx, sz, info
+    x3, z3 = sx[3], sz[3]
+    x4_old = sx[4]
+    if z_new >= z3 - 0.05:
+        raise ValueError(f"base plane ({z_new:.3f} m) reaches the dike crest ({z3:.3f} m): not supported")
+    x4_new = x3 + (z3 - z_new) / m_face
+    sx[4], sz[4], sz[5] = x4_new, z_new, z_new
+    sx[5] = max(sx[5], x4_new + 1.0)
+
+    def on_plane(k):
+        return (dx.get(k) is not None and dz.get(k) is not None
+                and abs(dz[k] - z_old) <= tol_z and dx[k] >= x4_old - tol_x)
+
+    # ---------------- seaward pivots ----------------
+    walk = [k for k in ('ramp_toe', 'ramp_toe_temp', 'ramp_crest', 'ramp_dike_temp', 'seaward_crest')
+            if dx.get(k) is not None and dz.get(k) is not None]   # seaward -> landward
+    toe_level = (dx.get('ramp_toe') is not None and abs(dz['ramp_toe'] - z_old) <= tol_z)
+    if toe_level and dx['ramp_toe'] < x4_old - tol_x:
+        # toe drawn at plane level under the dike face (scarp landward of the dike toe): it keeps its
+        # position and only follows the level; partial_volume clips it against the dike
+        info['case'] = 'under_face'
+        for k in walk:
+            if abs(dz[k] - z_old) <= tol_z and dx[k] < x4_old + tol_x:
+                dz[k] = z_new
+    elif on_plane('ramp_toe'):
+        xt = dx['ramp_toe']
+        if abs(xt - x4_old) <= tol_x:
+            # toe at the dike toe: follows point 4
+            info['case'] = 'dike_toe'
+            for k in walk:
+                coincident = abs(dx[k] - x4_old) <= tol_x and abs(dz[k] - z_old) <= tol_z
+                buried = (z_new > z_old and dz[k] < z_new and x3 - tol_x <= dx[k] <= x4_old + tol_x)
+                if coincident or buried:
+                    dx[k], dz[k] = x4_new, z_new
+        elif z_new > z_old:
+            info['case'] = 'rise'
+            a = next((i for i, k in enumerate(walk) if dz[k] > z_new + tol_z), None)
+            if a is None or a == 0:
+                raise ValueError("base plane rose above the dune front: dune buried (not handled)")
+            ka, kp = walk[a], walk[a - 1]
+            if abs(dx[ka] - dx[kp]) <= tol_x:
+                xc = dx[kp]
+            else:
+                xc = dx[kp] + (z_new - dz[kp]) * (dx[ka] - dx[kp]) / (dz[ka] - dz[kp])
+            xc = max(xc, x4_new)
+            for k in walk[:a]:
+                dx[k], dz[k] = xc, z_new
+        else:
+            info['case'] = 'drop'
+            group = [k for k in walk if abs(dx[k] - xt) <= tol_x and abs(dz[k] - z_old) <= tol_z]
+            q = next((k for k in walk if k not in group), None)
+            xc = xt
+            if q is not None and (xt - dx[q]) > tol_x and (dz[q] - z_old) > tol_z:
+                xc = xt + (z_old - z_new) * (xt - dx[q]) / (dz[q] - z_old)
+            for k in walk:
+                if k in group:
+                    dx[k], dz[k] = xc, z_new
+                elif on_plane(k):
+                    dz[k] = z_new
+    # ---------------- lee foot resting on the seaward plane ----------------
+    # if on_plane('lee_foot'):
+    #     xl, xlc, zlc = dx['lee_foot'], dx['lee_crest'], dz['lee_crest']
+    #     follow_ref = dx['back_ref'] >= x4_old - tol_x     # back_ref also sits on the seaward plane
+    #     if (xlc - xl) > tol_x and (zlc - z_old) > tol_z:
+    #         sl = (zlc - z_old) / (xlc - xl)
+    #         xn, zn = xl + (z_new - z_old) / sl, z_new
+    #         info['lee'] = 'slide'
+    #         if xn < x4_new:      # lee line meets the dike face before the plane
+    #             xn = (z3 + m_face * x3 - zlc + sl * xlc) / (sl + m_face)
+    #             zn = z3 - m_face * (xn - x3)
+    #             info['lee'] = 'on_face'
+    #         if zn >= zlc - tol_z:
+    #             raise ValueError("base plane rose above the lee crest: dune buried (not handled)")
+    #     else:
+    #         xn, zn = max(xl, x4_new), z_new
+    #         info['lee'] = 'vertical'
+    #     dx['lee_foot'], dz['lee_foot'] = xn, zn
+    #     if follow_ref:
+    #         dx['back_ref'], dz['back_ref'] = xn, zn
+    return dx, dz, sx, sz, info
+
+
+def shift_base_plane(dune_x, dune_z, substrate_x, substrate_z, z_new, m_face,
+                     tol_z=1e-9, tol_x=1e-9):
+    """
+    Move the seaward base plane (substrate points 4 and 5 = dune toe level) to
+    z_new and re-anchor the dune pivots that rest on it. The dike itself does
+    not move: point 4 slides along the seaward dike face.
+
+    Returns dune_x, dune_z, substrate_x, substrate_z (new objects), tau, info
+    tau > 0: dune volume relabelled to below-plane (beach side) sand.
+    """
+    if float(z_new) == float(substrate_z[4]):
+        return dune_x, dune_z, substrate_x, substrate_z, 0.0, {'case': 'none', 'lee': 'none'}
+    v_before = partial_volume(dune_x, dune_z, substrate_x, substrate_z,
+                              dune_x['lee_foot'], dune_x['ramp_toe'])
+    dx, dz, sx, sz, info = _reanchor_pivots(dune_x, dune_z, substrate_x, substrate_z, z_new, m_face, tol_z, tol_x)
+    v_after = partial_volume(dx, dz, sx, sz, dx['lee_foot'], dx['ramp_toe'])
+    return dx, dz, sx, sz, v_before - v_after, info
+
+
+def beach_base_level(x, x_berm, z_max, x_toe0, z_toe0, x_shore, z_msl, z_floor, slope_min=0.0):
+    """
+    Elevation of the beach base profile at x: flat at z_max landward of the berm
+    point, then the line berm -> previous toe (if that toe was seaward of the
+    berm and below z_max) -> shoreline. Not lower than z_floor, and not flatter
+    than slope_min measured from the shoreline.
+    """
+    if x <= x_berm:
+        return z_max
+    xs, zs = [x_berm], [z_max]
+    if x_toe0 > x_berm + 1e-9 and z_toe0 < z_max - 1e-12 and x_toe0 < x_shore - 1e-9:
+        xs.append(x_toe0); zs.append(z_toe0)
+    xs.append(max(x_shore, xs[-1] + 1e-6)); zs.append(z_msl)
+    zb = max(float(np.interp(x, xs, zs)), z_floor)
+    if slope_min > 0:   # the beach in front of a low toe is not flatter than slope_min: it builds up instead
+        zb = max(zb, min(z_max, z_msl + slope_min * (x_shore - x)))
+    return zb
+
+
+def find_toe_level(dune_x, dune_z, substrate_x, substrate_z, m_face, base_level, z_floor, z_max):
+    """
+    Level of the base plane for which the dune toe lies on the beach base
+    profile (base_level(x)). z_max if the toe is on the flat part; between
+    z_floor and z_max if the dune front stands on the beach slope.
+    """
+    def g(z):
+        try:
+            dx = _reanchor_pivots(dune_x, dune_z, substrate_x, substrate_z, z, m_face)[0]
+        except ValueError:
+            return 1.0          # plane above the dune front: the toe must be lower
+        return z - base_level(dx['ramp_toe'])
+    if g(z_max) <= 1e-12:
+        return z_max
+    if g(z_floor) >= 0.0:
+        return z_floor
+    return float(brentq(g, z_floor, z_max, xtol=1e-12, rtol=1e-14))
